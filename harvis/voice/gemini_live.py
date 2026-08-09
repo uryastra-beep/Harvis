@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 import os
 import sys
 import threading
@@ -15,11 +16,15 @@ OUTPUT_SAMPLE_RATE = 24000
 AUDIO_CHANNELS = 1
 INPUT_BLOCK_FRAMES = 1600
 INPUT_QUEUE_LIMIT = 20
+SPECTRUM_BINS = 42
+SPECTRUM_ANALYSIS_SAMPLES = 512
 
 ToolExecutor = Callable[[str, dict[str, Any]], Any]
 TextCallback = Callable[[str], None]
 StatusCallback = Callable[[str], None]
 ErrorCallback = Callable[[Exception], None]
+AudioLevelCallback = Callable[[float], None]
+SpectrumCallback = Callable[[list[float] | None], None]
 
 
 class GeminiLiveError(RuntimeError):
@@ -37,6 +42,8 @@ class GeminiLiveVoice:
         execute_tool: ToolExecutor,
         on_input_transcript: TextCallback | None = None,
         on_output_transcript: TextCallback | None = None,
+        on_audio_level: AudioLevelCallback | None = None,
+        on_spectrum: SpectrumCallback | None = None,
         on_ready: Callable[[], None] | None = None,
         on_status: StatusCallback | None = None,
         on_error: ErrorCallback | None = None,
@@ -46,6 +53,8 @@ class GeminiLiveVoice:
         self._execute_tool = execute_tool
         self._on_input_transcript = on_input_transcript
         self._on_output_transcript = on_output_transcript
+        self._on_audio_level = on_audio_level
+        self._on_spectrum = on_spectrum
         self._on_ready = on_ready
         self._on_status = on_status
         self._on_error = on_error
@@ -80,6 +89,7 @@ class GeminiLiveVoice:
 
     def stop(self) -> None:
         self._stop_event.set()
+        self._emit_silence()
 
         loop = self._loop
         if loop is not None and loop.is_running():
@@ -116,6 +126,7 @@ class GeminiLiveVoice:
         try:
             asyncio.run(self._run())
         except Exception as exc:
+            self._emit_silence()
             self._notify_error(exc)
 
     async def _run(self) -> None:
@@ -223,6 +234,7 @@ class GeminiLiveVoice:
                     receiver.cancel()
                     await asyncio.gather(sender, receiver, return_exceptions=True)
         finally:
+            self._emit_silence()
             try:
                 input_stream.stop()
             except Exception:
@@ -305,6 +317,8 @@ class GeminiLiveVoice:
                     response,
                 )
 
+            self._emit_silence()
+
             # session.receive() completes at the end of a server turn.
             # Start a new receive iterator so later user turns keep working.
             if not received_message:
@@ -369,9 +383,103 @@ class GeminiLiveVoice:
 
     async def _play_audio(self, output_stream, audio_data: bytes) -> None:
         self._mute_input_until = time.monotonic() + 0.35
+        level, spectrum = self._analyze_pcm16(audio_data)
+        self._emit_audio_analysis(level, spectrum)
         scaled_audio = self._scale_pcm16(audio_data)
         await asyncio.to_thread(output_stream.write, scaled_audio)
         self._mute_input_until = time.monotonic() + 0.25
+
+    @staticmethod
+    def _analyze_pcm16(audio_data: bytes) -> tuple[float, list[float]]:
+        usable_length = len(audio_data) - (len(audio_data) % 2)
+        if usable_length <= 0:
+            return 0.0, [0.0 for _ in range(SPECTRUM_BINS)]
+
+        samples = array("h")
+        samples.frombytes(audio_data[:usable_length])
+
+        if sys.byteorder != "little":
+            samples.byteswap()
+
+        if not samples:
+            return 0.0, [0.0 for _ in range(SPECTRUM_BINS)]
+
+        mean_square = sum(float(sample) * float(sample) for sample in samples) / len(samples)
+        raw_rms = math.sqrt(mean_square) / 32768.0
+        level = max(0.0, min(1.0, (raw_rms - 0.0025) * 6.2))
+
+        if level <= 0.003:
+            return 0.0, [0.0 for _ in range(SPECTRUM_BINS)]
+
+        stride = max(1, len(samples) // SPECTRUM_ANALYSIS_SAMPLES)
+        reduced_samples = samples[::stride]
+        if len(reduced_samples) > SPECTRUM_ANALYSIS_SAMPLES:
+            reduced_samples = reduced_samples[:SPECTRUM_ANALYSIS_SAMPLES]
+
+        sample_count = len(reduced_samples)
+        if sample_count < 8:
+            return level, [level for _ in range(SPECTRUM_BINS)]
+
+        effective_sample_rate = OUTPUT_SAMPLE_RATE / stride
+        highest_frequency = min(8000.0, effective_sample_rate * 0.45)
+        lowest_frequency = min(90.0, highest_frequency * 0.5)
+        frequency_ratio = highest_frequency / max(1.0, lowest_frequency)
+
+        windowed_samples = []
+        denominator = max(1, sample_count - 1)
+        for index, sample in enumerate(reduced_samples):
+            window = 0.5 - 0.5 * math.cos(math.tau * index / denominator)
+            windowed_samples.append((sample / 32768.0) * window)
+
+        magnitudes: list[float] = []
+        for bin_index in range(SPECTRUM_BINS):
+            position = bin_index / max(1, SPECTRUM_BINS - 1)
+            frequency = lowest_frequency * (frequency_ratio ** position)
+            omega = math.tau * frequency / effective_sample_rate
+            coefficient = 2.0 * math.cos(omega)
+            previous = 0.0
+            previous_two = 0.0
+
+            for sample in windowed_samples:
+                current = sample + coefficient * previous - previous_two
+                previous_two = previous
+                previous = current
+
+            power = (
+                previous_two * previous_two
+                + previous * previous
+                - coefficient * previous * previous_two
+            )
+            magnitudes.append(math.sqrt(max(0.0, power)) / sample_count)
+
+        peak = max(magnitudes, default=0.0)
+        if peak <= 1e-9:
+            return level, [0.0 for _ in range(SPECTRUM_BINS)]
+
+        amplitude_envelope = min(1.0, 0.10 + level * 1.55)
+        spectrum = [
+            min(1.0, ((magnitude / peak) ** 0.58) * amplitude_envelope)
+            for magnitude in magnitudes
+        ]
+        return level, spectrum
+
+    def _emit_audio_analysis(self, level: float, spectrum: list[float]) -> None:
+        level_callback = self._on_audio_level
+        if level_callback is not None:
+            level_callback(level)
+
+        spectrum_callback = self._on_spectrum
+        if spectrum_callback is not None:
+            spectrum_callback(spectrum)
+
+    def _emit_silence(self) -> None:
+        level_callback = self._on_audio_level
+        if level_callback is not None:
+            level_callback(0.0)
+
+        spectrum_callback = self._on_spectrum
+        if spectrum_callback is not None:
+            spectrum_callback(None)
 
     def _scale_pcm16(self, audio_data: bytes) -> bytes:
         with self._state_lock:
