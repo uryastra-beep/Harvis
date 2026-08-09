@@ -8,12 +8,14 @@ import re
 import shutil
 import signal
 import subprocess
+import time
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from harvis.actions.system import SystemActionError
 
+WINDOWS_DISCOVERY_TIMEOUT_SECONDS = 2.5
 SKIP_DIRECTORY_NAMES = {
     "$recycle.bin",
     ".git",
@@ -22,6 +24,7 @@ SKIP_DIRECTORY_NAMES = {
     "code cache",
     "gpu cache",
     "node_modules",
+    "packages",
     "temp",
     "tmp",
 }
@@ -87,20 +90,9 @@ def _score_name(candidate: str, query: str) -> int:
 
 
 def _open_windows_discovered_application(query: str) -> dict[str, Any]:
-    direct = _windows_find_executable(query)
+    direct = _windows_find_direct_executable(query)
     if direct is not None:
-        try:
-            os.startfile(str(direct))
-        except OSError as exc:
-            raise SystemActionError(
-                f"Harvis found {direct.name} but could not open it."
-            ) from exc
-        return {
-            "status": "completed",
-            "method": "executable",
-            "application": query,
-            "resolved": direct.name,
-        }
+        return _launch_windows_path(direct, query, "path")
 
     start_app = _windows_find_start_app(query)
     if start_app is not None:
@@ -110,6 +102,7 @@ def _open_windows_discovered_application(query: str) -> dict[str, Any]:
                 ["explorer.exe", f"shell:AppsFolder\\{app_id}"],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except OSError as exc:
             raise SystemActionError(
@@ -122,31 +115,102 @@ def _open_windows_discovered_application(query: str) -> dict[str, Any]:
             "resolved": app_name,
         }
 
+    app_path = _windows_find_registered_app_path(query)
+    if app_path is not None:
+        return _launch_windows_path(app_path, query, "app_path")
+
+    discovered = _windows_find_executable(query)
+    if discovered is not None:
+        return _launch_windows_path(discovered, query, "bounded_scan")
+
     raise SystemActionError(
         f"Harvis could not find an installed application matching '{query}'."
     )
 
 
-@lru_cache(maxsize=64)
-def _windows_find_executable(query: str) -> Path | None:
-    direct_names = [query, query.replace(" ", ""), query.replace(" ", "-")]
-    for direct_name in direct_names:
+def _launch_windows_path(path: Path, query: str, method: str) -> dict[str, Any]:
+    try:
+        os.startfile(str(path))
+    except OSError as exc:
+        raise SystemActionError(
+            f"Harvis found {path.name} but could not open it."
+        ) from exc
+    return {
+        "status": "completed",
+        "method": method,
+        "application": query,
+        "resolved": path.name,
+    }
+
+
+def _windows_candidate_names(query: str) -> tuple[str, ...]:
+    names = {
+        query,
+        query.replace(" ", ""),
+        query.replace(" ", "-"),
+    }
+    return tuple(sorted(name for name in names if name))
+
+
+def _windows_find_direct_executable(query: str) -> Path | None:
+    for direct_name in _windows_candidate_names(query):
         for candidate_name in (direct_name, f"{direct_name}.exe"):
             resolved = shutil.which(candidate_name)
             if resolved:
                 return Path(resolved)
+    return None
 
-    roots = _windows_search_roots()
+
+@lru_cache(maxsize=64)
+def _windows_find_registered_app_path(query: str) -> Path | None:
+    try:
+        import winreg
+    except ImportError:
+        return None
+
+    registry_roots = (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE)
+    registry_prefixes = (
+        r"Software\Microsoft\Windows\CurrentVersion\App Paths",
+        r"Software\WOW6432Node\Microsoft\Windows\CurrentVersion\App Paths",
+    )
+
+    for candidate in _windows_candidate_names(query):
+        executable_name = candidate if candidate.endswith(".exe") else f"{candidate}.exe"
+        for root in registry_roots:
+            for prefix in registry_prefixes:
+                key_path = f"{prefix}\\{executable_name}"
+                try:
+                    with winreg.OpenKey(root, key_path) as key:
+                        value, _ = winreg.QueryValueEx(key, None)
+                except OSError:
+                    continue
+                path = Path(str(value).strip().strip('"'))
+                if path.exists():
+                    return path
+    return None
+
+
+@lru_cache(maxsize=64)
+def _windows_find_executable(query: str) -> Path | None:
+    deadline = time.monotonic() + WINDOWS_DISCOVERY_TIMEOUT_SECONDS
     candidates: list[tuple[int, int, Path]] = []
-    for root in roots:
+
+    for root in _windows_search_roots():
+        if time.monotonic() >= deadline:
+            break
         if not root.exists() or not root.is_dir():
             continue
+
         root_depth = len(root.parts)
         try:
-            for current_root, directory_names, file_names in os.walk(root):
+            for current_root, directory_names, file_names in os.walk(root, topdown=True):
+                if time.monotonic() >= deadline:
+                    directory_names[:] = []
+                    break
+
                 current_path = Path(current_root)
                 depth = len(current_path.parts) - root_depth
-                if depth >= 5:
+                if depth >= 4:
                     directory_names[:] = []
                 else:
                     directory_names[:] = [
@@ -164,7 +228,7 @@ def _windows_find_executable(query: str) -> Path | None:
                     candidate = current_path / file_name
                     path_bonus = _path_query_bonus(candidate, query)
                     candidates.append((score + path_bonus, -len(str(candidate)), candidate))
-                    if score >= 1000 and path_bonus >= 50:
+                    if score >= 1000 and path_bonus >= 40:
                         return candidate
         except OSError:
             continue
@@ -180,13 +244,11 @@ def _windows_search_roots() -> tuple[Path, ...]:
     program_files = Path(os.getenv("PROGRAMFILES", "C:/Program Files"))
     program_files_x86 = Path(os.getenv("PROGRAMFILES(X86)", "C:/Program Files (x86)"))
     local_app_data = Path(os.getenv("LOCALAPPDATA", str(home / "AppData/Local")))
-    app_data = Path(os.getenv("APPDATA", str(home / "AppData/Roaming")))
     return (
+        local_app_data / "Programs",
         program_files,
         program_files_x86,
-        local_app_data / "Programs",
         local_app_data / "Microsoft/WindowsApps",
-        app_data,
     )
 
 
@@ -211,7 +273,7 @@ def _windows_find_start_app(query: str) -> tuple[str, str] | None:
             capture_output=True,
             text=True,
             check=False,
-            timeout=8,
+            timeout=4,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.TimeoutExpired):
