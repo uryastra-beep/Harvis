@@ -23,14 +23,10 @@ def set_master_volume(percent: int) -> None:
         raise SystemActionError("Master volume control is currently supported on Windows only.")
 
     try:
-        from ctypes import POINTER, cast
-
-        from comtypes import CLSCTX_ALL
-        from pycaw.pycaw import AudioUtilities, IAudioEndpointVolume
+        from pycaw.pycaw import AudioUtilities
 
         speakers = AudioUtilities.GetSpeakers()
-        interface = speakers.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
-        endpoint = cast(interface, POINTER(IAudioEndpointVolume))
+        endpoint = speakers.EndpointVolume
         endpoint.SetMasterVolumeLevelScalar(target / 100.0, None)
     except Exception as exc:
         raise SystemActionError("The master volume could not be changed.") from exc
