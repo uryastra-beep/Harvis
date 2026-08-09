@@ -4,6 +4,12 @@ from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
 
+from harvis.actions.desktop import (
+    close_application,
+    control_browser,
+    control_media,
+    open_application,
+)
 from harvis.config import HarvisSettings
 from harvis.core.intents import Intent, IntentType
 from harvis.core.router import IntentRouter
@@ -124,6 +130,50 @@ class HarvisAssistant:
             return {
                 "status": "completed",
                 "url": url,
+            }
+
+        if name == "open_application":
+            app_name = str(arguments.get("app_name", "")).strip()
+            if not app_name:
+                raise ValueError("open_application requires app_name.")
+
+            open_application(app_name)
+            return {
+                "status": "completed",
+                "application": app_name,
+            }
+
+        if name == "close_application":
+            app_name = str(arguments.get("app_name", "")).strip()
+            if not app_name:
+                raise ValueError("close_application requires app_name.")
+
+            close_application(app_name)
+            return {
+                "status": "completed",
+                "application": app_name,
+            }
+
+        if name == "browser_control":
+            action = str(arguments.get("action", "")).strip()
+            if not action:
+                raise ValueError("browser_control requires action.")
+
+            control_browser(action)
+            return {
+                "status": "completed",
+                "action": action,
+            }
+
+        if name == "media_control":
+            action = str(arguments.get("action", "")).strip()
+            if not action:
+                raise ValueError("media_control requires action.")
+
+            control_media(action)
+            return {
+                "status": "completed",
+                "action": action,
             }
 
         raise ValueError(f"Unsupported Harvis tool: {name}")
