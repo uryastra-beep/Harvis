@@ -205,8 +205,18 @@ class GeminiLiveVoice:
                     while not self._stop_event.is_set():
                         if sender.done():
                             await sender
+                            if not self._stop_event.is_set():
+                                raise GeminiLiveError(
+                                    "Gemini Live microphone sender stopped unexpectedly."
+                                )
+
                         if receiver.done():
                             await receiver
+                            if not self._stop_event.is_set():
+                                raise GeminiLiveError(
+                                    "Gemini Live receiver stopped unexpectedly."
+                                )
+
                         await asyncio.sleep(0.05)
                 finally:
                     sender.cancel()
@@ -279,30 +289,54 @@ class GeminiLiveVoice:
             )
 
     async def _receive_live_messages(self, session, types, output_stream) -> None:
-        async for response in session.receive():
-            if self._stop_event.is_set():
-                return
+        while not self._stop_event.is_set():
+            received_message = False
 
-            server_content = response.server_content
-            if server_content is not None:
-                input_transcription = server_content.input_transcription
-                if input_transcription and input_transcription.text:
-                    callback = self._on_input_transcript
-                    if callback is not None:
-                        callback(input_transcription.text.strip())
+            async for response in session.receive():
+                received_message = True
 
-                output_transcription = server_content.output_transcription
-                if output_transcription and output_transcription.text:
-                    callback = self._on_output_transcript
-                    if callback is not None:
-                        callback(output_transcription.text.strip())
+                if self._stop_event.is_set():
+                    return
 
-            if response.tool_call is not None:
-                await self._handle_tool_calls(session, types, response.tool_call)
+                await self._handle_live_response(
+                    session,
+                    types,
+                    output_stream,
+                    response,
+                )
 
-            audio_data = response.data
-            if audio_data:
-                await self._play_audio(output_stream, audio_data)
+            # session.receive() completes at the end of a server turn.
+            # Start a new receive iterator so later user turns keep working.
+            if not received_message:
+                await asyncio.sleep(0.01)
+
+    async def _handle_live_response(
+        self,
+        session,
+        types,
+        output_stream,
+        response,
+    ) -> None:
+        server_content = response.server_content
+        if server_content is not None:
+            input_transcription = server_content.input_transcription
+            if input_transcription and input_transcription.text:
+                callback = self._on_input_transcript
+                if callback is not None:
+                    callback(input_transcription.text.strip())
+
+            output_transcription = server_content.output_transcription
+            if output_transcription and output_transcription.text:
+                callback = self._on_output_transcript
+                if callback is not None:
+                    callback(output_transcription.text.strip())
+
+        if response.tool_call is not None:
+            await self._handle_tool_calls(session, types, response.tool_call)
+
+        audio_data = response.data
+        if audio_data:
+            await self._play_audio(output_stream, audio_data)
 
     async def _handle_tool_calls(self, session, types, tool_call) -> None:
         function_responses = []
