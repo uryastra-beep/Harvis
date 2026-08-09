@@ -12,6 +12,7 @@ from harvis.actions.system import SystemActionError
 SUSPICIOUS_PUNCTUATION_RE = re.compile(
     r"(?:([!?¿¡.,;:])\1{3,}|[!?¿¡.,;:]{6,})"
 )
+SUPPORTED_KEYS = {"enter"}
 
 
 def type_text(text: str) -> dict[str, Any]:
@@ -34,11 +35,34 @@ def type_text(text: str) -> dict[str, Any]:
     return {"status": "completed", "characters": len(value)}
 
 
-def _normalize_text_payload(text: str) -> str:
-    """Normalize real line endings and exact escaped Enter payloads."""
+def press_key(key: str, count: int = 1) -> dict[str, Any]:
+    """Press a supported physical keyboard key without encoding it as text."""
 
-    if text in {r"\n", r"\r", r"\r\n"}:
-        return "\n"
+    normalized_key = str(key).strip().lower()
+    if normalized_key not in SUPPORTED_KEYS:
+        raise ValueError(f"Unsupported keyboard key '{key}'.")
+
+    normalized_count = max(1, min(5, int(count)))
+    system_name = platform.system()
+
+    if system_name == "Windows":
+        _windows_press_key(normalized_key, normalized_count)
+    elif system_name == "Linux":
+        _linux_press_key(normalized_key, normalized_count)
+    else:
+        raise SystemActionError(
+            f"Keyboard key presses are not supported on {system_name or 'this platform'} yet."
+        )
+
+    return {
+        "status": "completed",
+        "key": normalized_key,
+        "count": normalized_count,
+    }
+
+
+def _normalize_text_payload(text: str) -> str:
+    """Normalize real line endings while preserving literal escape sequences."""
 
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
@@ -204,6 +228,17 @@ def _windows_type_unicode(text: str) -> None:
             )
 
 
+def _windows_press_key(key: str, count: int) -> None:
+    virtual_keys = {"enter": 0x0D}
+    vk_code = virtual_keys[key]
+    keyeventf_keyup = 0x0002
+    user32 = ctypes.windll.user32
+
+    for _ in range(count):
+        user32.keybd_event(vk_code, 0, 0, 0)
+        user32.keybd_event(vk_code, 0, keyeventf_keyup, 0)
+
+
 def _linux_type_text(text: str) -> None:
     xdotool = shutil.which("xdotool")
     if xdotool is None:
@@ -236,3 +271,25 @@ def _linux_type_text(text: str) -> None:
                 raise SystemActionError(
                     "Harvis could not press Enter in the active Linux window."
                 )
+
+
+def _linux_press_key(key: str, count: int) -> None:
+    xdotool = shutil.which("xdotool")
+    if xdotool is None:
+        raise SystemActionError(
+            "Linux keyboard key presses currently require xdotool and an X11-compatible session."
+        )
+
+    key_names = {"enter": "Return"}
+    for _ in range(count):
+        result = subprocess.run(
+            [xdotool, "key", "--clearmodifiers", key_names[key]],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise SystemActionError("Harvis could not press the requested Linux key.")
+
+
+__all__ = ["press_key", "type_text"]
