@@ -16,7 +16,7 @@ from harvis.actions.desktop import (
     control_media,
     open_application,
 )
-from harvis.actions.keyboard_control import type_text
+from harvis.actions.keyboard_control import press_key, type_text
 from harvis.actions.mouse_control import scroll_view
 from harvis.actions.visual_control import move_pointer, vision_click
 from harvis.actions.system import SystemActionError
@@ -60,7 +60,12 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
         return (
             f"{super()._system_instruction()} "
             "You can operate the desktop through approved tools. Prefer direct local tools for "
-            "opening applications, closing applications, browser shortcuts, media controls, typing, and scrolling. "
+            "opening applications, closing applications, browser shortcuts, media controls, typing, key presses, "
+            "and scrolling. When the user asks to press Enter, always use press_key with key='enter'. Never encode "
+            "a requested keyboard key press as text such as \\n, \\r, or another escape sequence. Use type_text only "
+            "for literal content the user wants written. After pressing Enter, do not add a leading newline to the "
+            "next type_text call unless the user explicitly requested an empty line. If the user explicitly asks "
+            "for Enter more than once, use the count parameter in one press_key call. "
             "Use scroll_view when the user asks to scroll up or down, or when scrolling is needed to reveal content "
             "before a later visual action. Use a small number of steps for a little scrolling and more steps only "
             "when the user clearly asks to move farther. "
@@ -258,17 +263,44 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
                 },
             },
             {
+                "name": "press_key",
+                "description": (
+                    "Press a physical keyboard key without typing a text escape sequence. "
+                    "Use this whenever the user asks to press Enter."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "key": {
+                            "type": "string",
+                            "enum": ["enter"],
+                            "description": "Physical keyboard key to press.",
+                        },
+                        "count": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 5,
+                            "description": (
+                                "Number of presses. Use 1 unless the user explicitly asks for multiple presses."
+                            ),
+                        },
+                    },
+                    "required": ["key"],
+                },
+            },
+            {
                 "name": "type_text",
                 "description": (
-                    "Type the exact requested text into the currently focused editable field. "
-                    "Use after the correct text field or application has focus."
+                    "Type literal requested text into the currently focused editable field. "
+                    "Use after the correct text field or application has focus. Do not use this tool to represent "
+                    "a requested Enter key press with \\n, \\r, or another escape sequence; use press_key instead."
                 ),
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "text": {
                             "type": "string",
-                            "description": "Exact text the user asked Harvis to enter.",
+                            "description": "Exact literal text the user asked Harvis to enter.",
                         }
                     },
                     "required": ["text"],
@@ -538,6 +570,13 @@ class HarvisAssistant:
             else:
                 self._notify_status(f"Could not confidently click: {target}")
             return result
+
+        if name == "press_key":
+            key = str(arguments.get("key", "")).strip()
+            if not key:
+                raise ValueError("press_key requires key.")
+            count = int(arguments.get("count", 1))
+            return press_key(key, count)
 
         if name == "type_text":
             text = str(arguments.get("text", ""))
