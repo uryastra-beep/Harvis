@@ -7,11 +7,18 @@ from pathlib import Path
 from typing import Any
 
 
+SUPPORTED_SPEECH_LANGUAGES = {
+    "es-419": "Spanish (Latin America)",
+    "en-US": "English (United States)",
+}
+
+
 @dataclass(slots=True)
 class HarvisSettings:
     start_with_windows: bool = False
     voice_volume: int = 70
     microphone_device: str = "System default"
+    speech_language: str = "es-419"
     visualizer_enabled: bool = True
     visualizer_type: str = "Sphere"
     visualizer_sensitivity: int = 60
@@ -20,6 +27,9 @@ class HarvisSettings:
     def normalized(self) -> "HarvisSettings":
         self.voice_volume = max(0, min(100, int(self.voice_volume)))
         self.visualizer_sensitivity = max(0, min(100, int(self.visualizer_sensitivity)))
+
+        if self.speech_language not in SUPPORTED_SPEECH_LANGUAGES:
+            self.speech_language = "es-419"
 
         if self.visualizer_type not in {"Sphere", "Bars"}:
             self.visualizer_type = "Sphere"
