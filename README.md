@@ -20,15 +20,18 @@ Harvis is being built to:
 
 ## Current development status
 
-The repository currently contains the first Python foundation:
+The repository currently contains:
 
 - Persistent settings storage.
-- A PySide6 settings interface.
+- A PySide6 settings interface with animated liquid-glass navigation.
 - A structured intent model and action router.
 - Windows system actions for opening a URL in the default browser and changing master volume.
+- A real-time sphere visualizer using the secondary color for the outer structure and the tertiary color for the particle field.
+- A real-time bar visualizer using the secondary color on the primary background.
+- Audio-level and spectrum input hooks so the visualizers can be connected to Harvis voice output later.
 - Automated tests for the core router and settings persistence.
 
-Voice recognition, wake-word detection, text-to-speech, AI provider integration, and audio-reactive visualizers will be added in later development stages.
+Voice recognition, wake-word detection, text-to-speech, and AI provider integration will be added in later development stages.
 
 ## Development
 
@@ -51,11 +54,27 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-### Run
+### Run settings
 
 ```powershell
 python -m harvis
 ```
+
+### Preview visualizers
+
+Sphere:
+
+```powershell
+python -m harvis --visualizer-preview sphere
+```
+
+Bars:
+
+```powershell
+python -m harvis --visualizer-preview bars
+```
+
+The preview uses simulated audio motion until the text-to-speech pipeline is connected.
 
 ### Tests
 
