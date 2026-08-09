@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from harvis.assistant import HarvisAssistant
-from harvis.config import SUPPORTED_SPEECH_LANGUAGES, SettingsStore
+from harvis.config import SUPPORTED_SPEECH_LANGUAGES, SettingsStore, USER_NAME_MAX_LENGTH
 from harvis.credentials import (
     CredentialStoreError,
     get_gemini_api_key,
@@ -52,10 +52,15 @@ class HarvisSettingsWindow(SettingsWindow):
         page = super()._build_general_page()
         layout = page.layout()
 
-        language_group = self._glass_group("Language")
-        language_form = QFormLayout(language_group)
-        language_form.setHorizontalSpacing(18)
-        language_form.setVerticalSpacing(12)
+        personalization_group = self._glass_group("Personalization")
+        personalization_form = QFormLayout(personalization_group)
+        personalization_form.setHorizontalSpacing(18)
+        personalization_form.setVerticalSpacing(12)
+
+        self.user_name = QLineEdit()
+        self.user_name.setMaxLength(USER_NAME_MAX_LENGTH)
+        self.user_name.setPlaceholderText("Your name")
+        personalization_form.addRow("Your name", self.user_name)
 
         self.speech_language = QComboBox()
         for language_tag, display_name in SUPPORTED_SPEECH_LANGUAGES.items():
@@ -64,18 +69,17 @@ class HarvisSettingsWindow(SettingsWindow):
                 language_tag,
             )
 
-        language_form.addRow("Preferred language", self.speech_language)
+        personalization_form.addRow("Preferred language", self.speech_language)
 
-        language_note = QLabel(
-            "Gemini Live can understand multiple languages. "
-            "This setting controls Harvis's preferred response language."
+        personalization_note = QLabel(
+            "Harvis uses your name for its startup greeting and the language setting for its preferred replies."
         )
-        language_note.setObjectName("mutedLabel")
-        language_note.setWordWrap(True)
-        language_form.addRow(language_note)
+        personalization_note.setObjectName("mutedLabel")
+        personalization_note.setWordWrap(True)
+        personalization_form.addRow(personalization_note)
 
         if isinstance(layout, QVBoxLayout):
-            layout.insertWidget(max(0, layout.count() - 1), language_group)
+            layout.insertWidget(max(0, layout.count() - 1), personalization_group)
 
         return page
 
@@ -165,6 +169,9 @@ class HarvisSettingsWindow(SettingsWindow):
     def _load_settings_into_controls(self) -> None:
         super()._load_settings_into_controls()
 
+        if hasattr(self, "user_name"):
+            self.user_name.setText(self._settings.user_name)
+
         if hasattr(self, "speech_language"):
             index = self.speech_language.findData(self._settings.speech_language)
             if index >= 0:
@@ -250,6 +257,7 @@ class HarvisSettingsWindow(SettingsWindow):
             self._live_visualizer.set_spectrum(spectrum)
 
     def _save_settings(self) -> None:
+        selected_user_name = self.user_name.text()
         selected_language = self.speech_language.currentData()
         pending_api_key = self.gemini_api_key.text().strip()
         api_key_changed = False
@@ -269,14 +277,17 @@ class HarvisSettingsWindow(SettingsWindow):
 
         super()._save_settings()
 
+        self._settings.user_name = selected_user_name
         if isinstance(selected_language, str) and selected_language:
             self._settings.speech_language = selected_language
-            self._settings_store.save(self._settings)
+        self._settings_store.save(self._settings)
+        self.user_name.setText(self._settings.user_name)
 
         if self._assistant is not None:
-            self._assistant.apply_settings(self._settings)
             if api_key_changed:
                 self._assistant.stop()
+            self._assistant.apply_settings(self._settings)
+            if api_key_changed:
                 self._assistant.start()
 
         self.sync_live_visualizer()
