@@ -5,7 +5,8 @@ TEXT_PRIMARY = "#F4F7FF"
 TEXT_MUTED = "#AAB8D6"
 SURFACE = "#06113D"
 SURFACE_HOVER = "#0B1A50"
-BORDER = "#1E326D"
+BORDER = TERTIARY
+SLIDER_TRACK = "#1E326D"
 
 
 APP_STYLESHEET = f"""
@@ -120,7 +121,7 @@ QCheckBox::indicator:checked {{
 
 QSlider::groove:horizontal {{
     height: 6px;
-    background: {BORDER};
+    background: {SLIDER_TRACK};
     border-radius: 3px;
 }}
 
