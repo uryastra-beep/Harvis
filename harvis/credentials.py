@@ -47,7 +47,11 @@ def save_gemini_api_key(api_key: str) -> None:
 def sync_gemini_api_key_environment() -> bool:
     """Load a persisted key into the current process for Gemini SDK consumers."""
 
-    value = get_gemini_api_key()
+    try:
+        value = get_gemini_api_key()
+    except CredentialStoreError:
+        value = os.getenv(GEMINI_API_KEY_ENV, "").strip()
+
     if not value:
         return False
 
