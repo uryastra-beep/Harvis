@@ -127,12 +127,16 @@ def main() -> int:
 
         if not options.no_voice:
             assistant_signals = AssistantSignals()
-            assistant_signals.status_changed.connect(
-                lambda status: window.statusBar().showMessage(status)
-            )
-            assistant_signals.heard.connect(
-                lambda text: print(f"[Harvis] Heard: {text}")
-            )
+
+            def show_status(status: str) -> None:
+                print(f"[Harvis] {status}", flush=True)
+                window.statusBar().showMessage(status)
+
+            def show_heard(text: str) -> None:
+                print(f"[Harvis] Heard: {text}", flush=True)
+
+            assistant_signals.status_changed.connect(show_status)
+            assistant_signals.heard.connect(show_heard)
 
             assistant = HarvisAssistant(
                 settings_store.load(),
@@ -145,6 +149,7 @@ def main() -> int:
     window.show()
 
     if assistant is not None:
-        QTimer.singleShot(100, assistant.start)
+        print("[Harvis] Voice runtime scheduled to start.", flush=True)
+        QTimer.singleShot(300, assistant.start)
 
     return app.exec()
