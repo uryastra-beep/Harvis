@@ -25,13 +25,17 @@ The repository currently contains:
 - Persistent settings storage.
 - A PySide6 settings interface with animated liquid-glass navigation.
 - A structured intent model and action router.
-- Windows system actions for opening a URL in the default browser and changing master volume.
+- Windows system actions for opening URLs in the default browser and changing master volume.
 - A real-time sphere visualizer using the secondary color for the outer structure and the tertiary color for the particle field.
 - A real-time bar visualizer using the secondary color on the primary background.
-- Audio-level and spectrum input hooks so the visualizers can be connected to Harvis voice output later.
-- Automated tests for the core router and settings persistence.
+- Audio-level and spectrum input hooks for the visualizers.
+- Windows SAPI speech recognition using the system default microphone.
+- Windows SAPI speech synthesis with configurable Harvis voice volume.
+- Wake-word filtering for `Harvis` and `Jarvis`.
+- Spoken command parsing for browser and master-volume commands.
+- Automated tests for routing, settings persistence, and spoken command parsing.
 
-Voice recognition, wake-word detection, text-to-speech, and AI provider integration will be added in later development stages.
+AI provider integration and a dedicated low-power wake-word engine will be added in later development stages.
 
 ## Development
 
@@ -39,6 +43,7 @@ Voice recognition, wake-word detection, text-to-speech, and AI provider integrat
 
 - Windows 10 or Windows 11
 - Python 3.11 or newer
+- A Windows speech recognition engine and language profile compatible with the commands you intend to speak
 
 ### Setup
 
@@ -54,11 +59,34 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-### Run settings
+### Run settings and voice assistant
 
 ```powershell
 python -m harvis
 ```
+
+Harvis starts listening through the system default microphone when the normal settings application starts.
+
+To start the settings application without voice recognition:
+
+```powershell
+python -m harvis --no-voice
+```
+
+### Current voice commands
+
+The first voice-command parser is intentionally English-only so repository content remains fully English.
+
+Examples:
+
+```text
+Harvis open Google
+Harvis open YouTube
+Harvis set volume to 70 percent
+Jarvis set volume to seventy five percent
+```
+
+Commands that do not match a local action are routed to the AI intent. Until an AI provider is configured, Harvis answers that AI responses are not configured yet.
 
 ### Preview visualizers
 
@@ -74,7 +102,7 @@ Bars:
 python -m harvis --visualizer-preview bars
 ```
 
-The preview uses simulated audio motion until the text-to-speech pipeline is connected.
+The preview uses simulated audio motion until the live text-to-speech audio level is connected to the visualizer.
 
 ### Tests
 
