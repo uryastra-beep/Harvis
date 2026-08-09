@@ -411,23 +411,28 @@ class GeminiLiveVoice:
         if level <= 0.003:
             return 0.0, [0.0 for _ in range(SPECTRUM_BINS)]
 
-        stride = max(1, len(samples) // SPECTRUM_ANALYSIS_SAMPLES)
-        reduced_samples = samples[::stride]
-        if len(reduced_samples) > SPECTRUM_ANALYSIS_SAMPLES:
-            reduced_samples = reduced_samples[:SPECTRUM_ANALYSIS_SAMPLES]
+        if len(samples) > SPECTRUM_ANALYSIS_SAMPLES:
+            start_index = max(
+                0,
+                (len(samples) - SPECTRUM_ANALYSIS_SAMPLES) // 2,
+            )
+            analysis_samples = samples[
+                start_index : start_index + SPECTRUM_ANALYSIS_SAMPLES
+            ]
+        else:
+            analysis_samples = samples
 
-        sample_count = len(reduced_samples)
+        sample_count = len(analysis_samples)
         if sample_count < 8:
             return level, [level for _ in range(SPECTRUM_BINS)]
 
-        effective_sample_rate = OUTPUT_SAMPLE_RATE / stride
-        highest_frequency = min(8000.0, effective_sample_rate * 0.45)
-        lowest_frequency = min(90.0, highest_frequency * 0.5)
-        frequency_ratio = highest_frequency / max(1.0, lowest_frequency)
+        highest_frequency = min(8000.0, OUTPUT_SAMPLE_RATE * 0.45)
+        lowest_frequency = 90.0
+        frequency_ratio = highest_frequency / lowest_frequency
 
         windowed_samples = []
         denominator = max(1, sample_count - 1)
-        for index, sample in enumerate(reduced_samples):
+        for index, sample in enumerate(analysis_samples):
             window = 0.5 - 0.5 * math.cos(math.tau * index / denominator)
             windowed_samples.append((sample / 32768.0) * window)
 
@@ -435,7 +440,7 @@ class GeminiLiveVoice:
         for bin_index in range(SPECTRUM_BINS):
             position = bin_index / max(1, SPECTRUM_BINS - 1)
             frequency = lowest_frequency * (frequency_ratio ** position)
-            omega = math.tau * frequency / effective_sample_rate
+            omega = math.tau * frequency / OUTPUT_SAMPLE_RATE
             coefficient = 2.0 * math.cos(omega)
             previous = 0.0
             previous_two = 0.0
