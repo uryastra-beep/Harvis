@@ -4,10 +4,16 @@ import argparse
 import sys
 
 from PySide6.QtCore import QObject, QTimer, Qt, Signal
-from PySide6.QtWidgets import QApplication, QVBoxLayout
+from PySide6.QtWidgets import (
+    QApplication,
+    QComboBox,
+    QFormLayout,
+    QLabel,
+    QVBoxLayout,
+)
 
 from harvis.assistant import HarvisAssistant
-from harvis.config import SettingsStore
+from harvis.config import SUPPORTED_SPEECH_LANGUAGES, SettingsStore
 from harvis.ui.settings_window import LiquidActionButton, SettingsWindow
 from harvis.ui.visualizer_window import VisualizerWindow
 
@@ -20,7 +26,7 @@ class AssistantSignals(QObject):
 
 
 class HarvisSettingsWindow(SettingsWindow):
-    """Settings window with live visualizer preview and assistant integration."""
+    """Settings window with visualizer, language, and assistant integration."""
 
     def __init__(self, settings_store: SettingsStore) -> None:
         self._visualizer_preview: VisualizerWindow | None = None
@@ -29,6 +35,36 @@ class HarvisSettingsWindow(SettingsWindow):
 
     def set_assistant(self, assistant: HarvisAssistant) -> None:
         self._assistant = assistant
+
+    def _build_general_page(self):
+        page = super()._build_general_page()
+        layout = page.layout()
+
+        language_group = self._glass_group("Language")
+        language_form = QFormLayout(language_group)
+        language_form.setHorizontalSpacing(18)
+        language_form.setVerticalSpacing(12)
+
+        self.speech_language = QComboBox()
+        for language_tag, display_name in SUPPORTED_SPEECH_LANGUAGES.items():
+            self.speech_language.addItem(
+                f"{display_name} ({language_tag})",
+                language_tag,
+            )
+
+        language_form.addRow("Speech language", self.speech_language)
+
+        language_note = QLabel(
+            "Harvis will request this language from the installed speech recognition engine."
+        )
+        language_note.setObjectName("mutedLabel")
+        language_note.setWordWrap(True)
+        language_form.addRow(language_note)
+
+        if isinstance(layout, QVBoxLayout):
+            layout.insertWidget(max(0, layout.count() - 1), language_group)
+
+        return page
 
     def _build_visualizer_page(self):
         page = super()._build_visualizer_page()
@@ -46,6 +82,14 @@ class HarvisSettingsWindow(SettingsWindow):
             )
 
         return page
+
+    def _load_settings_into_controls(self) -> None:
+        super()._load_settings_into_controls()
+
+        if hasattr(self, "speech_language"):
+            index = self.speech_language.findData(self._settings.speech_language)
+            if index >= 0:
+                self.speech_language.setCurrentIndex(index)
 
     def _open_visualizer_preview(self) -> None:
         if self._visualizer_preview is not None:
@@ -68,7 +112,12 @@ class HarvisSettingsWindow(SettingsWindow):
         self._visualizer_preview = None
 
     def _save_settings(self) -> None:
+        selected_language = self.speech_language.currentData()
         super()._save_settings()
+
+        if isinstance(selected_language, str) and selected_language:
+            self._settings.speech_language = selected_language
+            self._settings_store.save(self._settings)
 
         if self._assistant is not None:
             self._assistant.apply_settings(self._settings)
