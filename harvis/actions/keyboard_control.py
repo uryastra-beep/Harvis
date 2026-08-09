@@ -15,7 +15,7 @@ SUSPICIOUS_PUNCTUATION_RE = re.compile(
 
 
 def type_text(text: str) -> dict[str, Any]:
-    value = str(text)
+    value = _normalize_text_payload(str(text))
     if not value:
         return {"status": "completed", "characters": 0}
 
@@ -32,6 +32,15 @@ def type_text(text: str) -> dict[str, Any]:
         )
 
     return {"status": "completed", "characters": len(value)}
+
+
+def _normalize_text_payload(text: str) -> str:
+    """Normalize real line endings and exact escaped Enter payloads."""
+
+    if text in {r"\n", r"\r", r"\r\n"}:
+        return "\n"
+
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _validate_text_payload(text: str) -> None:
@@ -202,11 +211,28 @@ def _linux_type_text(text: str) -> None:
             "Linux text typing currently requires xdotool and an X11-compatible session."
         )
 
-    result = subprocess.run(
-        [xdotool, "type", "--clearmodifiers", "--delay", "1", "--", text],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise SystemActionError("Harvis could not type into the active Linux window.")
+    chunks = text.split("\n")
+    for index, chunk in enumerate(chunks):
+        if chunk:
+            result = subprocess.run(
+                [xdotool, "type", "--clearmodifiers", "--delay", "1", "--", chunk],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise SystemActionError(
+                    "Harvis could not type into the active Linux window."
+                )
+
+        if index < len(chunks) - 1:
+            result = subprocess.run(
+                [xdotool, "key", "--clearmodifiers", "Return"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if result.returncode != 0:
+                raise SystemActionError(
+                    "Harvis could not press Enter in the active Linux window."
+                )
