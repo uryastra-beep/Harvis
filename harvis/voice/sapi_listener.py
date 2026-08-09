@@ -12,6 +12,11 @@ SAPI_LANGUAGE_IDS = {
     "en-US": "409",
 }
 
+_LANGUAGE_FAMILY_SUFFIXES = {
+    "es-419": "0A",
+    "en-US": "09",
+}
+
 
 class _RecognitionSink:
     def __init__(
@@ -117,11 +122,86 @@ class SapiSpeechListener:
         self._stop_event.set()
 
         thread = self._thread
-        if self._thread is not threading.current_thread() and thread is not None and thread.is_alive():
+        if (
+            self._thread is not threading.current_thread()
+            and thread is not None
+            and thread.is_alive()
+        ):
             thread.join(timeout=1.5)
 
         self._thread = None
         self._ready_event.clear()
+
+    @staticmethod
+    def _token_language_ids(token) -> list[str]:
+        try:
+            raw_value = str(token.GetAttribute("Language"))
+        except Exception:
+            return []
+
+        normalized: list[str] = []
+        for part in raw_value.replace(",", ";").split(";"):
+            value = part.strip().upper().removeprefix("0X")
+            if value:
+                normalized.append(value)
+        return normalized
+
+    def _select_recognizer_token(self, recognizer):
+        requested_id = SAPI_LANGUAGE_IDS.get(self._language_tag)
+        if requested_id is None:
+            raise RuntimeError(
+                f"No SAPI language mapping exists for {self._language_tag}."
+            )
+
+        recognizers = recognizer.GetRecognizers("", "")
+        count = int(recognizers.Count)
+        if count <= 0:
+            raise RuntimeError("No Windows SAPI speech recognizers are installed.")
+
+        tokens = [recognizers.Item(index) for index in range(count)]
+        requested_id = requested_id.upper()
+
+        for token in tokens:
+            if requested_id in self._token_language_ids(token):
+                return token
+
+        family_suffix = _LANGUAGE_FAMILY_SUFFIXES.get(self._language_tag)
+        if family_suffix is not None:
+            for token in tokens:
+                language_ids = self._token_language_ids(token)
+                if any(language_id.endswith(family_suffix) for language_id in language_ids):
+                    return token
+
+        available: list[str] = []
+        for token in tokens:
+            try:
+                description = str(token.GetDescription()).strip()
+            except Exception:
+                description = "Unknown recognizer"
+            language_ids = self._token_language_ids(token)
+            language_text = ", ".join(language_ids) if language_ids else "unknown language"
+            available.append(f"{description} [{language_text}]")
+
+        details = "; ".join(available)
+        raise RuntimeError(
+            f"No installed Windows SAPI speech recognizer supports {self._language_tag}. "
+            f"Available recognizers: {details}"
+        )
+
+    @staticmethod
+    def _configure_audio_input(recognizer) -> None:
+        try:
+            recognizer.AudioInput = None
+            return
+        except Exception:
+            pass
+
+        audio_inputs = recognizer.GetAudioInputs()
+        count = int(audio_inputs.Count)
+        if count <= 0:
+            raise RuntimeError("No Windows audio input device is available to SAPI.")
+
+        recognizer.AudioInput = audio_inputs.Item(0)
 
     def _worker(self) -> None:
         CoInitialize()
@@ -131,30 +211,9 @@ class SapiSpeechListener:
         connection = None
 
         try:
-            sapi_language_id = SAPI_LANGUAGE_IDS.get(self._language_tag)
-            if sapi_language_id is None:
-                raise RuntimeError(
-                    f"No SAPI language mapping exists for {self._language_tag}."
-                )
-
             recognizer = CreateObject("SAPI.SpInprocRecognizer")
-            recognizers = recognizer.GetRecognizers(
-                f"Language={sapi_language_id}",
-                "",
-            )
-
-            if recognizers.Count < 1:
-                raise RuntimeError(
-                    "No installed Windows SAPI speech recognizer supports "
-                    f"{self._language_tag}."
-                )
-
-            recognizer.Recognizer = recognizers.Item(0)
-
-            audio_inputs = recognizer.GetAudioInputs()
-            if audio_inputs.Count < 1:
-                raise RuntimeError("No Windows audio input device is available to SAPI.")
-            recognizer.AudioInput = audio_inputs.Item(0)
+            recognizer.Recognizer = self._select_recognizer_token(recognizer)
+            self._configure_audio_input(recognizer)
 
             recognition_context = recognizer.CreateRecoContext()
             grammar = recognition_context.CreateGrammar(0)
