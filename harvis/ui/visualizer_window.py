@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Sequence
 
 from PySide6.QtCore import QPointF, QRectF, QTimer, Qt
@@ -18,6 +19,7 @@ class AudioReactiveVisualizer(QWidget):
     """Base class for Harvis visualizers driven by a normalized audio level."""
 
     FRAME_INTERVAL_MS = 16
+    LIVE_AUDIO_TIMEOUT_SECONDS = 0.16
 
     def __init__(
         self,
@@ -33,6 +35,7 @@ class AudioReactiveVisualizer(QWidget):
         self._target_level = 0.0
         self._phase = 0.0
         self._demo_mode = bool(demo_mode)
+        self._last_audio_update = 0.0
 
         self._timer = QTimer(self)
         self._timer.setTimerType(Qt.TimerType.PreciseTimer)
@@ -55,10 +58,19 @@ class AudioReactiveVisualizer(QWidget):
     def sensitivity(self) -> float:
         return self._sensitivity / 100.0
 
+    @property
+    def sensitivity_percent(self) -> int:
+        return self._sensitivity
+
+    @property
+    def demo_mode(self) -> bool:
+        return self._demo_mode
+
     def set_audio_level(self, level: float) -> None:
         """Set the current voice amplitude as a normalized value from 0.0 to 1.0."""
 
         self._target_level = _clamp01(level)
+        self._last_audio_update = time.monotonic()
 
     def set_sensitivity(self, sensitivity: int) -> None:
         self._sensitivity = max(0, min(100, int(sensitivity)))
@@ -77,6 +89,14 @@ class AudioReactiveVisualizer(QWidget):
                 + 0.09 * math.sin(self._phase * 8.4 + 1.9)
             )
             self._target_level = _clamp01(abs(pulse))
+        elif (
+            self._target_level > 0.0
+            and time.monotonic() - self._last_audio_update
+            > self.LIVE_AUDIO_TIMEOUT_SECONDS
+        ):
+            self._target_level *= 0.72
+            if self._target_level < 0.004:
+                self._target_level = 0.0
 
         effective_target = _clamp01(
             self._target_level * (0.55 + self.sensitivity * 0.85)
@@ -284,6 +304,7 @@ class BarsVisualizer(AudioReactiveVisualizer):
     """Harvis bar visualizer using only the primary and secondary colors."""
 
     BAR_COUNT = 42
+    SPECTRUM_TIMEOUT_SECONDS = 0.18
 
     def __init__(
         self,
@@ -299,6 +320,7 @@ class BarsVisualizer(AudioReactiveVisualizer):
         )
         self._bars = [0.08 for _ in range(self.BAR_COUNT)]
         self._spectrum: list[float] | None = None
+        self._last_spectrum_update = 0.0
 
     def set_spectrum(self, values: Sequence[float] | None) -> None:
         """Provide normalized spectrum bins. Pass None to return to level-based motion."""
@@ -309,15 +331,27 @@ class BarsVisualizer(AudioReactiveVisualizer):
 
         cleaned = [_clamp01(value) for value in values]
         self._spectrum = cleaned or None
+        self._last_spectrum_update = time.monotonic()
 
     def _on_frame(self) -> None:
+        spectrum_is_live = (
+            self._spectrum is not None
+            and time.monotonic() - self._last_spectrum_update
+            <= self.SPECTRUM_TIMEOUT_SECONDS
+        )
+
+        if not spectrum_is_live and self._spectrum is not None:
+            self._spectrum = None
+
         for index in range(self.BAR_COUNT):
             if self._spectrum:
                 source_index = int(
                     (index / max(1, self.BAR_COUNT - 1))
                     * max(0, len(self._spectrum) - 1)
                 )
-                target = self._spectrum[source_index]
+                target = self._spectrum[source_index] * (
+                    0.55 + self.sensitivity * 0.75
+                )
             else:
                 normalized = index / max(1, self.BAR_COUNT - 1)
                 wave = (
@@ -397,7 +431,7 @@ class BarsVisualizer(AudioReactiveVisualizer):
 
 
 class VisualizerWindow(QWidget):
-    """Standalone Harvis visualizer surface ready for live voice amplitude input."""
+    """Standalone Harvis visualizer surface for live Gemini voice audio."""
 
     def __init__(
         self,
@@ -414,33 +448,58 @@ class VisualizerWindow(QWidget):
         self.setMinimumSize(640, 420)
         self.setStyleSheet(f"background-color: {PRIMARY};")
 
-        normalized_type = visualizer_type.strip().lower()
-        if normalized_type == "bars":
-            self.visualizer: AudioReactiveVisualizer = BarsVisualizer(
-                sensitivity=sensitivity,
-                demo_mode=demo_mode,
-                parent=self,
-            )
-        else:
-            self.visualizer = SphereVisualizer(
-                sensitivity=sensitivity,
-                demo_mode=demo_mode,
+        self._visualizer_type = self._normalize_type(visualizer_type)
+        self._sensitivity = max(0, min(100, int(sensitivity)))
+        self._demo_mode = bool(demo_mode)
+        self.visualizer = self._create_visualizer(self._visualizer_type)
+        self.visualizer.setGeometry(self.rect())
+
+    @staticmethod
+    def _normalize_type(visualizer_type: str) -> str:
+        return "Bars" if visualizer_type.strip().lower() == "bars" else "Sphere"
+
+    def _create_visualizer(self, visualizer_type: str) -> AudioReactiveVisualizer:
+        if visualizer_type == "Bars":
+            return BarsVisualizer(
+                sensitivity=self._sensitivity,
+                demo_mode=self._demo_mode,
                 parent=self,
             )
 
-        self.visualizer.setGeometry(self.rect())
+        return SphereVisualizer(
+            sensitivity=self._sensitivity,
+            demo_mode=self._demo_mode,
+            parent=self,
+        )
 
     def resizeEvent(self, event) -> None:
         self.visualizer.setGeometry(self.rect())
         super().resizeEvent(event)
 
+    def set_visualizer_type(self, visualizer_type: str) -> None:
+        normalized_type = self._normalize_type(visualizer_type)
+        if normalized_type == self._visualizer_type:
+            return
+
+        previous_level = self.visualizer.level
+        old_visualizer = self.visualizer
+        self._visualizer_type = normalized_type
+        self.visualizer = self._create_visualizer(normalized_type)
+        self.visualizer.setGeometry(self.rect())
+        self.visualizer.set_audio_level(previous_level)
+        self.visualizer.show()
+        old_visualizer.hide()
+        old_visualizer.deleteLater()
+
     def set_audio_level(self, level: float) -> None:
         self.visualizer.set_audio_level(level)
 
     def set_sensitivity(self, sensitivity: int) -> None:
-        self.visualizer.set_sensitivity(sensitivity)
+        self._sensitivity = max(0, min(100, int(sensitivity)))
+        self.visualizer.set_sensitivity(self._sensitivity)
 
     def set_demo_mode(self, enabled: bool) -> None:
+        self._demo_mode = bool(enabled)
         self.visualizer.set_demo_mode(enabled)
 
     def set_spectrum(self, values: Sequence[float] | None) -> None:
