@@ -11,11 +11,13 @@ SUPPORTED_SPEECH_LANGUAGES = {
     "es-419": "Spanish (Latin America)",
     "en-US": "English (United States)",
 }
+USER_NAME_MAX_LENGTH = 48
 
 
 @dataclass(slots=True)
 class HarvisSettings:
     start_with_windows: bool = False
+    user_name: str = "User"
     voice_volume: int = 70
     microphone_device: str = "System default"
     speech_language: str = "es-419"
@@ -25,6 +27,8 @@ class HarvisSettings:
     ai_provider: str = "Gemini Live"
 
     def normalized(self) -> "HarvisSettings":
+        normalized_name = " ".join(str(self.user_name).split()).strip()
+        self.user_name = normalized_name[:USER_NAME_MAX_LENGTH] or "User"
         self.voice_volume = max(0, min(100, int(self.voice_volume)))
         self.visualizer_sensitivity = max(0, min(100, int(self.visualizer_sensitivity)))
 
