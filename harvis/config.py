@@ -22,7 +22,7 @@ class HarvisSettings:
     visualizer_enabled: bool = True
     visualizer_type: str = "Sphere"
     visualizer_sensitivity: int = 60
-    ai_provider: str = "Not configured"
+    ai_provider: str = "Gemini Live"
 
     def normalized(self) -> "HarvisSettings":
         self.voice_volume = max(0, min(100, int(self.voice_volume)))
