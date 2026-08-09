@@ -1,53 +1,48 @@
 from __future__ import annotations
 
-import threading
 from collections.abc import Callable
+from typing import Any
+from urllib.parse import urlparse
 
 from harvis.config import HarvisSettings
-from harvis.core.command_parser import contains_wake_word, parse_spoken_intent
-from harvis.core.intents import IntentType
+from harvis.core.intents import Intent, IntentType
 from harvis.core.router import IntentRouter
-from harvis.voice.sapi_listener import SapiSpeechListener
-from harvis.voice.sapi_tts import SapiVoice
+from harvis.voice.gemini_live import GeminiLiveVoice
 
 
 class HarvisAssistant:
-    """Coordinate speech recognition, command routing, actions, and spoken feedback."""
+    """Coordinate Gemini Live voice, local tools, and application status."""
 
     def __init__(
         self,
         settings: HarvisSettings,
         *,
         on_heard: Callable[[str], None] | None = None,
+        on_response: Callable[[str], None] | None = None,
         on_status: Callable[[str], None] | None = None,
     ) -> None:
         self._settings = settings
         self._on_heard = on_heard
+        self._on_response = on_response
         self._on_status = on_status
-
-        self._speaking_event = threading.Event()
         self._router = IntentRouter()
 
-        self._voice = SapiVoice(
-            volume=settings.voice_volume,
-            on_speaking_changed=self._set_speaking,
-            on_error=self._handle_voice_error,
-        )
-        self._listener = SapiSpeechListener(
-            on_text=self._handle_recognition,
+        self._voice = GeminiLiveVoice(
             language_tag=settings.speech_language,
-            should_ignore=self._speaking_event.is_set,
-            on_ready=self._handle_listener_ready,
-            on_error=self._handle_listener_error,
+            voice_volume=settings.voice_volume,
+            execute_tool=self._execute_tool,
+            on_input_transcript=self._handle_input_transcript,
+            on_output_transcript=self._handle_output_transcript,
+            on_ready=self._handle_live_ready,
+            on_status=self._notify_status,
+            on_error=self._handle_live_error,
         )
 
     def start(self) -> None:
-        self._notify_status("Starting voice assistant")
+        self._notify_status("Starting Gemini Live voice assistant")
         self._voice.start()
-        self._listener.start()
 
     def stop(self) -> None:
-        self._listener.stop()
         self._voice.stop()
         self._notify_status("Voice assistant stopped")
 
@@ -58,70 +53,61 @@ class HarvisAssistant:
 
         if settings.speech_language != previous_language:
             self._notify_status(
-                f"Switching speech language to {settings.speech_language}"
+                f"Switching preferred speech language to {settings.speech_language}"
             )
-            self._listener.set_language(settings.speech_language)
+            self._voice.set_language(settings.speech_language)
 
-    def speak(self, text: str) -> None:
-        self._voice.speak(text)
-
-    def _handle_listener_ready(self) -> None:
+    def _handle_live_ready(self) -> None:
         self._notify_status(
-            f"Listening for Harvis ({self._listener.language_tag})"
+            f"Listening with Gemini Live ({self._voice.language_tag})"
         )
-        self.speak("Harvis is online.")
 
-    def _handle_recognition(self, text: str) -> None:
-        if self._on_heard is not None:
-            self._on_heard(text)
-
-        if not contains_wake_word(text):
-            return
-
-        intent = parse_spoken_intent(text)
-        if intent is None:
-            self.speak("Yes?")
-            return
-
-        try:
-            if intent.type is IntentType.ASK_AI:
-                self.speak("AI answers are not configured yet.")
-                return
-
-            self._router.dispatch(intent)
-            self._speak_success(intent)
-        except Exception as exc:
-            self._notify_status(f"Command failed: {exc}")
-            self.speak("I could not complete that command.")
-
-    def _speak_success(self, intent) -> None:
-        if intent.type is IntentType.SET_VOLUME:
-            percent = int(intent.parameters.get("percent", 0))
-            self.speak(f"Volume set to {percent} percent.")
-            return
-
-        if intent.type is IntentType.OPEN_URL:
-            target = str(intent.parameters.get("target", "it")).strip() or "it"
-            self.speak(f"Opening {target}.")
-
-    def _set_speaking(self, speaking: bool) -> None:
-        if speaking:
-            self._speaking_event.set()
-            self._notify_status("Speaking")
-        else:
-            self._speaking_event.clear()
-            if self._listener.is_ready:
-                self._notify_status(
-                    f"Listening for Harvis ({self._listener.language_tag})"
-                )
-
-    def _handle_listener_error(self, error: Exception) -> None:
-        self._notify_status(f"Speech recognition unavailable: {error}")
-
-    def _handle_voice_error(self, error: Exception) -> None:
-        self._notify_status(f"Speech synthesis unavailable: {error}")
-
-    def _notify_status(self, status: str) -> None:
-        callback = self._on_status
+    def _handle_input_transcript(self, text: str) -> None:
+        callback = self._on_heard
         if callback is not None:
-            callback(status)
+            callback(text)
+
+    def _handle_output_transcript(self, text: str) -> None:
+        callback = self._on_response
+        if callback is not None:
+            callback(text)
+
+    def _handle_live_error(self, error: Exception) -> None:
+        self._notify_status(f"Gemini Live unavailable: {error}")
+
+    def _execute_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name == "set_master_volume":
+            if "percent" not in arguments:
+                raise ValueError("set_master_volume requires percent.")
+
+            percent = max(0, min(100, int(arguments["percent"])))
+            self._router.dispatch(
+                Intent(
+                    IntentType.SET_VOLUME,
+                    {"percent": percent},
+                )
+            )
+            return {
+                "status": "completed",
+                "percent": percent,
+            }
+
+        if name == "open_url":
+            url = str(arguments.get("url", "")).strip()
+            parsed = urlparse(url)
+
+            if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                raise ValueError("open_url requires a complete HTTP or HTTPS URL.")
+
+            self._router.dispatch(
+                Intent(
+                    IntentType.OPEN_URL,
+                    {"url": url},
+                )
+            )
+            return {
+                "status": "completed",
+                "url": url,
+            }
+
+        raise ValueError(f"Unsupported Harvis tool: {name}")
