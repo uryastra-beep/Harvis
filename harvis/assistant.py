@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import time
 from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlparse
@@ -15,7 +17,7 @@ from harvis.actions.desktop import (
     open_application,
 )
 from harvis.actions.keyboard_control import type_text
-from harvis.actions.screen_control import move_pointer, vision_click
+from harvis.actions.visual_control import move_pointer, vision_click
 from harvis.actions.system import SystemActionError
 from harvis.config import HarvisSettings
 from harvis.core.intents import Intent, IntentType
@@ -225,6 +227,41 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             }
         ]
 
+    async def _handle_tool_calls(self, session, types, tool_call) -> None:
+        """Run blocking desktop tools off the Gemini Live event loop."""
+
+        function_responses = []
+
+        for function_call in tool_call.function_calls:
+            arguments = dict(function_call.args or {})
+            try:
+                result = await asyncio.to_thread(
+                    self._execute_tool,
+                    function_call.name,
+                    arguments,
+                )
+                if result is None:
+                    result = {"ok": True}
+                response_body = {"ok": True, "result": result}
+            except Exception as exc:
+                response_body = {
+                    "ok": False,
+                    "error": str(exc),
+                }
+
+            function_responses.append(
+                types.FunctionResponse(
+                    id=function_call.id,
+                    name=function_call.name,
+                    response=response_body,
+                )
+            )
+
+        if function_responses:
+            await session.send_tool_response(
+                function_responses=function_responses,
+            )
+
 
 class HarvisAssistant:
     """Coordinate Gemini Live voice, local tools, and application status."""
@@ -356,6 +393,10 @@ class HarvisAssistant:
                 }
             except SystemActionError:
                 result = open_discovered_application(app_name)
+
+            # Give newly launched windows a short chance to become the foreground
+            # target before Gemini sends a follow-up typing or visual action.
+            time.sleep(0.75)
             return result
 
         if name == "close_application":
