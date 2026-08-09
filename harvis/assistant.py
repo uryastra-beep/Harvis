@@ -14,7 +14,8 @@ from harvis.actions.desktop import (
     control_media,
     open_application,
 )
-from harvis.actions.screen_control import move_pointer, type_text, vision_click
+from harvis.actions.keyboard_control import type_text
+from harvis.actions.screen_control import move_pointer, vision_click
 from harvis.actions.system import SystemActionError
 from harvis.config import HarvisSettings
 from harvis.core.intents import Intent, IntentType
@@ -199,7 +200,7 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             {
                 "name": "type_text",
                 "description": (
-                    "Type or paste the exact requested text into the currently focused editable field. "
+                    "Type the exact requested text into the currently focused editable field. "
                     "Use after the correct text field or application has focus."
                 ),
                 "parameters": {
