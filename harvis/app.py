@@ -24,6 +24,8 @@ class AssistantSignals(QObject):
     status_changed = Signal(str)
     heard = Signal(str)
     response = Signal(str)
+    audio_level = Signal(float)
+    spectrum = Signal(object)
 
 
 class HarvisSettingsWindow(SettingsWindow):
@@ -31,6 +33,7 @@ class HarvisSettingsWindow(SettingsWindow):
 
     def __init__(self, settings_store: SettingsStore) -> None:
         self._visualizer_preview: VisualizerWindow | None = None
+        self._live_visualizer: VisualizerWindow | None = None
         self._assistant: HarvisAssistant | None = None
         super().__init__(settings_store)
 
@@ -102,9 +105,17 @@ class HarvisSettingsWindow(SettingsWindow):
         self.visualizer_preview_button = LiquidActionButton("Preview visualizer")
         self.visualizer_preview_button.clicked.connect(self._open_visualizer_preview)
 
+        live_note = QLabel(
+            "When enabled, the live visualizer reacts to Harvis's actual Gemini voice audio."
+        )
+        live_note.setObjectName("mutedLabel")
+        live_note.setWordWrap(True)
+
         if isinstance(layout, QVBoxLayout):
+            insertion_index = max(0, layout.count() - 1)
+            layout.insertWidget(insertion_index, live_note)
             layout.insertWidget(
-                max(0, layout.count() - 1),
+                insertion_index + 1,
                 self.visualizer_preview_button,
                 0,
                 Qt.AlignmentFlag.AlignLeft,
@@ -140,6 +151,38 @@ class HarvisSettingsWindow(SettingsWindow):
     def _clear_visualizer_preview(self, *args) -> None:
         self._visualizer_preview = None
 
+    def sync_live_visualizer(self) -> None:
+        if self._assistant is None or not self._settings.visualizer_enabled:
+            if self._live_visualizer is not None:
+                self._live_visualizer.close()
+            return
+
+        if self._live_visualizer is None:
+            self._live_visualizer = VisualizerWindow(
+                visualizer_type=self._settings.visualizer_type,
+                sensitivity=self._settings.visualizer_sensitivity,
+                demo_mode=False,
+            )
+        else:
+            self._live_visualizer.set_visualizer_type(
+                self._settings.visualizer_type
+            )
+            self._live_visualizer.set_sensitivity(
+                self._settings.visualizer_sensitivity
+            )
+            self._live_visualizer.set_demo_mode(False)
+
+        self._live_visualizer.show()
+        self._live_visualizer.raise_()
+
+    def set_live_audio_level(self, level: float) -> None:
+        if self._live_visualizer is not None:
+            self._live_visualizer.set_audio_level(level)
+
+    def set_live_spectrum(self, spectrum) -> None:
+        if self._live_visualizer is not None:
+            self._live_visualizer.set_spectrum(spectrum)
+
     def _save_settings(self) -> None:
         selected_language = self.speech_language.currentData()
         super()._save_settings()
@@ -151,9 +194,13 @@ class HarvisSettingsWindow(SettingsWindow):
         if self._assistant is not None:
             self._assistant.apply_settings(self._settings)
 
+        self.sync_live_visualizer()
+
     def closeEvent(self, event) -> None:
         if self._visualizer_preview is not None:
             self._visualizer_preview.close()
+        if self._live_visualizer is not None:
+            self._live_visualizer.close()
         super().closeEvent(event)
 
 
@@ -219,11 +266,15 @@ def main() -> int:
             assistant_signals.status_changed.connect(show_status)
             assistant_signals.heard.connect(show_heard)
             assistant_signals.response.connect(show_response)
+            assistant_signals.audio_level.connect(window.set_live_audio_level)
+            assistant_signals.spectrum.connect(window.set_live_spectrum)
 
             assistant = HarvisAssistant(
                 settings_store.load(),
                 on_heard=assistant_signals.heard.emit,
                 on_response=assistant_signals.response.emit,
+                on_audio_level=assistant_signals.audio_level.emit,
+                on_spectrum=assistant_signals.spectrum.emit,
                 on_status=assistant_signals.status_changed.emit,
             )
             window.set_assistant(assistant)
@@ -232,6 +283,7 @@ def main() -> int:
     window.show()
 
     if assistant is not None:
+        window.sync_live_visualizer()
         print("[Harvis] Gemini Live runtime scheduled to start.", flush=True)
         QTimer.singleShot(300, assistant.start)
 
