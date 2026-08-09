@@ -29,6 +29,8 @@ def type_text(text: str) -> dict[str, Any]:
 
 
 def _windows_type_unicode(text: str) -> None:
+    """Send Unicode keyboard input using the real Windows INPUT structure layout."""
+
     from ctypes import wintypes
 
     input_keyboard = 1
@@ -37,17 +39,40 @@ def _windows_type_unicode(text: str) -> None:
     vk_return = 0x0D
     vk_tab = 0x09
 
+    ulong_ptr = wintypes.WPARAM
+
+    class MouseInput(ctypes.Structure):
+        _fields_ = [
+            ("dx", wintypes.LONG),
+            ("dy", wintypes.LONG),
+            ("mouseData", wintypes.DWORD),
+            ("dwFlags", wintypes.DWORD),
+            ("time", wintypes.DWORD),
+            ("dwExtraInfo", ulong_ptr),
+        ]
+
     class KeyboardInput(ctypes.Structure):
         _fields_ = [
             ("wVk", wintypes.WORD),
             ("wScan", wintypes.WORD),
             ("dwFlags", wintypes.DWORD),
             ("time", wintypes.DWORD),
-            ("dwExtraInfo", ctypes.c_size_t),
+            ("dwExtraInfo", ulong_ptr),
+        ]
+
+    class HardwareInput(ctypes.Structure):
+        _fields_ = [
+            ("uMsg", wintypes.DWORD),
+            ("wParamL", wintypes.WORD),
+            ("wParamH", wintypes.WORD),
         ]
 
     class InputUnion(ctypes.Union):
-        _fields_ = [("ki", KeyboardInput)]
+        _fields_ = [
+            ("mi", MouseInput),
+            ("ki", KeyboardInput),
+            ("hi", HardwareInput),
+        ]
 
     class Input(ctypes.Structure):
         _anonymous_ = ("union",)
@@ -60,59 +85,53 @@ def _windows_type_unicode(text: str) -> None:
     send_input.argtypes = (wintypes.UINT, ctypes.POINTER(Input), ctypes.c_int)
     send_input.restype = wintypes.UINT
 
-    def send_virtual_key(vk_code: int) -> None:
+    def send_pair(keyboard_down: KeyboardInput, keyboard_up: KeyboardInput) -> None:
         inputs = (Input * 2)(
-            Input(
-                type=input_keyboard,
-                ki=KeyboardInput(
-                    wVk=vk_code,
-                    wScan=0,
-                    dwFlags=0,
-                    time=0,
-                    dwExtraInfo=0,
-                ),
-            ),
-            Input(
-                type=input_keyboard,
-                ki=KeyboardInput(
-                    wVk=vk_code,
-                    wScan=0,
-                    dwFlags=keyeventf_keyup,
-                    time=0,
-                    dwExtraInfo=0,
-                ),
-            ),
+            Input(type=input_keyboard, ki=keyboard_down),
+            Input(type=input_keyboard, ki=keyboard_up),
         )
         sent = send_input(2, inputs, ctypes.sizeof(Input))
         if sent != 2:
-            raise SystemActionError("Harvis could not send a Windows keyboard event.")
+            error_code = ctypes.get_last_error()
+            raise SystemActionError(
+                f"Harvis could not send Windows keyboard input (error {error_code})."
+            )
+
+    def send_virtual_key(vk_code: int) -> None:
+        send_pair(
+            KeyboardInput(
+                wVk=vk_code,
+                wScan=0,
+                dwFlags=0,
+                time=0,
+                dwExtraInfo=0,
+            ),
+            KeyboardInput(
+                wVk=vk_code,
+                wScan=0,
+                dwFlags=keyeventf_keyup,
+                time=0,
+                dwExtraInfo=0,
+            ),
+        )
 
     def send_unicode_code_unit(code_unit: int) -> None:
-        inputs = (Input * 2)(
-            Input(
-                type=input_keyboard,
-                ki=KeyboardInput(
-                    wVk=0,
-                    wScan=code_unit,
-                    dwFlags=keyeventf_unicode,
-                    time=0,
-                    dwExtraInfo=0,
-                ),
+        send_pair(
+            KeyboardInput(
+                wVk=0,
+                wScan=code_unit,
+                dwFlags=keyeventf_unicode,
+                time=0,
+                dwExtraInfo=0,
             ),
-            Input(
-                type=input_keyboard,
-                ki=KeyboardInput(
-                    wVk=0,
-                    wScan=code_unit,
-                    dwFlags=keyeventf_unicode | keyeventf_keyup,
-                    time=0,
-                    dwExtraInfo=0,
-                ),
+            KeyboardInput(
+                wVk=0,
+                wScan=code_unit,
+                dwFlags=keyeventf_unicode | keyeventf_keyup,
+                time=0,
+                dwExtraInfo=0,
             ),
         )
-        sent = send_input(2, inputs, ctypes.sizeof(Input))
-        if sent != 2:
-            raise SystemActionError("Harvis could not type Unicode text on Windows.")
 
     for character in text:
         if character == "\n":
@@ -127,8 +146,8 @@ def _windows_type_unicode(text: str) -> None:
             code_unit = int.from_bytes(encoded[index : index + 2], "little")
             send_unicode_code_unit(code_unit)
 
-        if len(text) < 80:
-            time.sleep(0.002)
+        if len(text) < 120:
+            time.sleep(0.0015)
 
 
 def _linux_type_text(text: str) -> None:
