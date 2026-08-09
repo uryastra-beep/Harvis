@@ -1,16 +1,16 @@
 # Harvis
 
-Harvis is a Windows personal assistant designed to combine local system control, voice interaction, AI-powered answers, and optional audio-reactive visualizers.
+Harvis is a desktop personal assistant designed to combine local system control, real-time voice interaction, AI-powered answers, and optional audio-reactive visualizers.
 
 ## Project goals
 
 Harvis is being built to:
 
 - Execute local computer actions such as opening the default browser or changing system volume.
-- Listen for voice requests and route them to the correct local action or AI provider.
-- Speak responses through text-to-speech.
+- Use the same voice architecture on Windows and Linux.
+- Hold low-latency voice conversations through Gemini Live.
 - Provide a dedicated settings interface.
-- Offer optional audio-reactive visualizers, including a sphere and bar mode.
+- Offer optional audio-reactive visualizers, including sphere and bar modes.
 
 ## Official color palette
 
@@ -24,26 +24,43 @@ The repository currently contains:
 
 - Persistent settings storage.
 - A PySide6 settings interface with animated liquid-glass navigation.
-- A structured intent model and action router.
-- Windows system actions for opening URLs in the default browser and changing master volume.
-- A real-time sphere visualizer using the secondary color for the outer structure and the tertiary color for the particle field.
-- A real-time bar visualizer using the secondary color on the primary background.
-- Audio-level and spectrum input hooks for the visualizers.
-- Windows SAPI speech recognition using the system default microphone.
-- Windows SAPI speech synthesis with configurable Harvis voice volume.
-- Wake-word filtering for `Harvis` and `Jarvis`.
-- Spoken command parsing for browser and master-volume commands.
-- Automated tests for routing, settings persistence, and spoken command parsing.
+- Gemini Live native audio input and output.
+- Input and output transcription in the development console.
+- Gemini Live function calling for approved local actions.
+- Local tools for opening HTTP/HTTPS URLs and changing master volume.
+- Windows master-volume support through pycaw.
+- Linux master-volume support through `wpctl` or `pactl`.
+- Preferred language settings for Spanish (Latin America) and English (United States).
+- A real-time sphere visualizer and bar visualizer.
+- Automated tests for routing, settings persistence, and the legacy spoken-command parser.
 
-AI provider integration and a dedicated low-power wake-word engine will be added in later development stages.
+The current Gemini Live prototype streams microphone audio while Harvis is running. The model is instructed to respond or use tools only when addressed as `Harvis` or `Jarvis`. A dedicated local low-power wake-word engine will be added later so idle audio does not need to be sent to the cloud.
+
+## Voice architecture
+
+```text
+Microphone
+    |
+    v
+Gemini Live
+    |
+    +--> Native audio response --> Speakers
+    |
+    +--> Function call --> Harvis local tool --> Windows / Linux
+```
+
+Gemini Live uses 16-bit PCM microphone input and returns 16-bit PCM audio output. Harvis currently uses a 16 kHz microphone stream and 24 kHz playback stream.
 
 ## Development
 
 ### Requirements
 
-- Windows 10 or Windows 11
 - Python 3.11 or newer
-- A Windows speech recognition engine and language profile compatible with the commands you intend to speak
+- A working microphone and audio output device
+- Internet access for Gemini Live
+- A Gemini API key
+- Windows 10/11 for the current Windows UI target
+- On Linux, PortAudio plus either PipeWire (`wpctl`) or PulseAudio (`pactl`) for the relevant audio/system features
 
 ### Setup
 
@@ -59,36 +76,79 @@ python -m venv .venv
 python -m pip install -r requirements.txt
 ```
 
-### Run settings and voice assistant
+### Gemini API key
+
+Harvis reads the Gemini key from the `GEMINI_API_KEY` environment variable. Never commit an API key to this repository.
+
+For the current PowerShell session:
+
+```powershell
+$env:GEMINI_API_KEY="YOUR_KEY"
+```
+
+To save it for the current Windows user:
+
+```powershell
+[Environment]::SetEnvironmentVariable("GEMINI_API_KEY", "YOUR_KEY", "User")
+```
+
+Open a new terminal after setting a persistent user environment variable.
+
+### Run settings and Gemini Live
 
 ```powershell
 python -m harvis
 ```
 
-Harvis starts listening through the system default microphone when the normal settings application starts.
+Expected development console status:
 
-To start the settings application without voice recognition:
+```text
+[Harvis] Gemini Live runtime scheduled to start.
+[Harvis] Starting Gemini Live voice assistant
+[Harvis] Connecting to Gemini Live
+[Harvis] Gemini Live connected
+[Harvis] Listening with Gemini Live (es-419)
+```
+
+Input and output transcripts are printed as:
+
+```text
+[Harvis] Heard: ...
+[Harvis] Response: ...
+```
+
+Try:
+
+```text
+Harvis, abre Google.
+Harvis, pon el volumen al 70 por ciento.
+Harvis, what is the capital of Japan?
+```
+
+The first two requests can use local tools. General questions are answered directly by Gemini Live.
+
+To start the settings application without Gemini Live:
 
 ```powershell
 python -m harvis --no-voice
 ```
 
-### Current voice commands
+## Settings
 
-The first voice-command parser is intentionally English-only so repository content remains fully English.
+### Language
 
-Examples:
+The language setting controls Harvis's preferred response language:
 
-```text
-Harvis open Google
-Harvis open YouTube
-Harvis set volume to 70 percent
-Jarvis set volume to seventy five percent
-```
+- Spanish (Latin America) (`es-419`)
+- English (United States) (`en-US`)
 
-Commands that do not match a local action are routed to the AI intent. Until an AI provider is configured, Harvis answers that AI responses are not configured yet.
+Gemini Live can still understand multiple languages. Native audio models choose the spoken language automatically; Harvis uses the setting as a response preference through its system instruction.
 
-### Preview visualizers
+### AI
+
+The active provider is `Gemini Live`. The API key is read from `GEMINI_API_KEY` and is not written to Harvis settings.
+
+## Preview visualizers
 
 Sphere:
 
@@ -102,9 +162,9 @@ Bars:
 python -m harvis --visualizer-preview bars
 ```
 
-The preview uses simulated audio motion until the live text-to-speech audio level is connected to the visualizer.
+The visualizer preview still uses simulated audio motion. Connecting the live Gemini output PCM stream to the visualizer is a later integration step.
 
-### Tests
+## Tests
 
 ```powershell
 python -m pytest
