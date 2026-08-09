@@ -1,0 +1,4 @@
+PySide6>=6.8,<7
+pycaw>=20240210
+comtypes>=1.4
+pytest>=8,<9

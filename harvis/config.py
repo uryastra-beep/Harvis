@@ -1,0 +1,68 @@
+from __future__ import annotations
+
+import json
+import os
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+
+@dataclass(slots=True)
+class HarvisSettings:
+    start_with_windows: bool = False
+    voice_volume: int = 70
+    microphone_device: str = "System default"
+    visualizer_enabled: bool = True
+    visualizer_type: str = "Sphere"
+    visualizer_sensitivity: int = 60
+    ai_provider: str = "Not configured"
+
+    def normalized(self) -> "HarvisSettings":
+        self.voice_volume = max(0, min(100, int(self.voice_volume)))
+        self.visualizer_sensitivity = max(0, min(100, int(self.visualizer_sensitivity)))
+
+        if self.visualizer_type not in {"Sphere", "Bars"}:
+            self.visualizer_type = "Sphere"
+
+        return self
+
+
+class SettingsStore:
+    def __init__(self, config_path: Path | None = None) -> None:
+        self.config_path = config_path or self._default_config_path()
+
+    @staticmethod
+    def _default_config_path() -> Path:
+        app_data = os.getenv("APPDATA")
+        base_path = Path(app_data) if app_data else Path.home() / ".config"
+        return base_path / "Harvis" / "settings.json"
+
+    def load(self) -> HarvisSettings:
+        if not self.config_path.exists():
+            return HarvisSettings()
+
+        try:
+            raw_data = json.loads(self.config_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return HarvisSettings()
+
+        if not isinstance(raw_data, dict):
+            return HarvisSettings()
+
+        valid_fields = HarvisSettings.__dataclass_fields__.keys()
+        filtered_data: dict[str, Any] = {
+            key: value for key, value in raw_data.items() if key in valid_fields
+        }
+
+        try:
+            return HarvisSettings(**filtered_data).normalized()
+        except (TypeError, ValueError):
+            return HarvisSettings()
+
+    def save(self, settings: HarvisSettings) -> None:
+        normalized = settings.normalized()
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        self.config_path.write_text(
+            json.dumps(asdict(normalized), indent=2, ensure_ascii=True) + "\n",
+            encoding="utf-8",
+        )
