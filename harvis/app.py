@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from harvis.assistant import HarvisAssistant
 from harvis.config import SUPPORTED_SPEECH_LANGUAGES, SettingsStore
+from harvis.ui.orb_popup import OrbPopupWindow
 from harvis.ui.settings_window import LiquidActionButton, SettingsWindow
 from harvis.ui.visualizer_window import VisualizerWindow
 
@@ -33,7 +34,7 @@ class HarvisSettingsWindow(SettingsWindow):
 
     def __init__(self, settings_store: SettingsStore) -> None:
         self._visualizer_preview: VisualizerWindow | None = None
-        self._live_visualizer: VisualizerWindow | None = None
+        self._live_visualizer: VisualizerWindow | OrbPopupWindow | None = None
         self._assistant: HarvisAssistant | None = None
         super().__init__(settings_store)
 
@@ -106,7 +107,8 @@ class HarvisSettingsWindow(SettingsWindow):
         self.visualizer_preview_button.clicked.connect(self._open_visualizer_preview)
 
         live_note = QLabel(
-            "When enabled, the live visualizer reacts to Harvis's actual Gemini voice audio."
+            "When enabled, the live visualizer reacts to Harvis's actual Gemini voice audio. "
+            "Sphere mode appears as a small transparent always-on-top orb that can be dragged anywhere."
         )
         live_note.setObjectName("mutedLabel")
         live_note.setWordWrap(True)
@@ -151,27 +153,52 @@ class HarvisSettingsWindow(SettingsWindow):
     def _clear_visualizer_preview(self, *args) -> None:
         self._visualizer_preview = None
 
+    def _clear_live_visualizer(self, *args) -> None:
+        self._live_visualizer = None
+
+    def _live_visualizer_matches_settings(self) -> bool:
+        if self._live_visualizer is None:
+            return False
+
+        wants_sphere = self._settings.visualizer_type.strip().lower() == "sphere"
+        return (
+            wants_sphere and isinstance(self._live_visualizer, OrbPopupWindow)
+        ) or (
+            not wants_sphere and isinstance(self._live_visualizer, VisualizerWindow)
+        )
+
+    def _create_live_visualizer(self) -> VisualizerWindow | OrbPopupWindow:
+        if self._settings.visualizer_type.strip().lower() == "sphere":
+            visualizer: VisualizerWindow | OrbPopupWindow = OrbPopupWindow(
+                sensitivity=self._settings.visualizer_sensitivity,
+                demo_mode=False,
+            )
+        else:
+            visualizer = VisualizerWindow(
+                visualizer_type="Bars",
+                sensitivity=self._settings.visualizer_sensitivity,
+                demo_mode=False,
+            )
+
+        visualizer.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        visualizer.destroyed.connect(self._clear_live_visualizer)
+        return visualizer
+
     def sync_live_visualizer(self) -> None:
         if self._assistant is None or not self._settings.visualizer_enabled:
             if self._live_visualizer is not None:
                 self._live_visualizer.close()
             return
 
-        if self._live_visualizer is None:
-            self._live_visualizer = VisualizerWindow(
-                visualizer_type=self._settings.visualizer_type,
-                sensitivity=self._settings.visualizer_sensitivity,
-                demo_mode=False,
-            )
-        else:
-            self._live_visualizer.set_visualizer_type(
-                self._settings.visualizer_type
-            )
-            self._live_visualizer.set_sensitivity(
-                self._settings.visualizer_sensitivity
-            )
-            self._live_visualizer.set_demo_mode(False)
+        if not self._live_visualizer_matches_settings():
+            if self._live_visualizer is not None:
+                self._live_visualizer.close()
+            self._live_visualizer = self._create_live_visualizer()
 
+        self._live_visualizer.set_sensitivity(
+            self._settings.visualizer_sensitivity
+        )
+        self._live_visualizer.set_demo_mode(False)
         self._live_visualizer.show()
         self._live_visualizer.raise_()
 
