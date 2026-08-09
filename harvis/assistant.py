@@ -17,6 +17,7 @@ from harvis.actions.desktop import (
     open_application,
 )
 from harvis.actions.keyboard_control import type_text
+from harvis.actions.mouse_control import scroll_view
 from harvis.actions.visual_control import move_pointer, vision_click
 from harvis.actions.system import SystemActionError
 from harvis.config import HarvisSettings
@@ -59,7 +60,10 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
         return (
             f"{super()._system_instruction()} "
             "You can operate the desktop through approved tools. Prefer direct local tools for "
-            "opening applications, closing applications, browser shortcuts, media controls, and typing. "
+            "opening applications, closing applications, browser shortcuts, media controls, typing, and scrolling. "
+            "Use scroll_view when the user asks to scroll up or down, or when scrolling is needed to reveal content "
+            "before a later visual action. Use a small number of steps for a little scrolling and more steps only "
+            "when the user clearly asks to move farther. "
             "Use vision_click only when the user explicitly asks you to visually find and click something "
             "that is currently visible on the screen. Before calling vision_click, briefly speak a natural "
             "filler phrase in the user's current language, such as 'Hmm, let me look for it.' After a "
@@ -191,6 +195,33 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
                         }
                     },
                     "required": ["destination"],
+                },
+            },
+            {
+                "name": "scroll_view",
+                "description": (
+                    "Scroll the currently active or pointer-targeted view vertically. "
+                    "Use this for webpages, documents, lists, settings pages, chats, and other scrollable UI."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "direction": {
+                            "type": "string",
+                            "enum": ["up", "down"],
+                            "description": "Direction to scroll the current view.",
+                        },
+                        "steps": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 20,
+                            "description": (
+                                "Number of mouse-wheel steps. Use about 3 for a normal scroll and larger values "
+                                "only when the user asks to move farther."
+                            ),
+                        },
+                    },
+                    "required": ["direction"],
                 },
             },
             {
@@ -481,6 +512,13 @@ class HarvisAssistant:
             if not destination:
                 raise ValueError("move_pointer requires destination.")
             return move_pointer(destination)
+
+        if name == "scroll_view":
+            direction = str(arguments.get("direction", "")).strip()
+            if not direction:
+                raise ValueError("scroll_view requires direction.")
+            steps = int(arguments.get("steps", 3))
+            return scroll_view(direction, steps)
 
         if name == "vision_click":
             target = str(arguments.get("target", "")).strip()
