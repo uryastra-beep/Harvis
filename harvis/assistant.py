@@ -111,3 +111,8 @@ class HarvisAssistant:
             }
 
         raise ValueError(f"Unsupported Harvis tool: {name}")
+
+    def _notify_status(self, status: str) -> None:
+        callback = self._on_status
+        if callback is not None:
+            callback(status)
