@@ -9,11 +9,18 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QLabel,
+    QLineEdit,
     QVBoxLayout,
 )
 
 from harvis.assistant import HarvisAssistant
 from harvis.config import SUPPORTED_SPEECH_LANGUAGES, SettingsStore
+from harvis.credentials import (
+    CredentialStoreError,
+    get_gemini_api_key,
+    save_gemini_api_key,
+    sync_gemini_api_key_environment,
+)
 from harvis.ui.orb_popup import OrbPopupWindow
 from harvis.ui.settings_window import LiquidActionButton, SettingsWindow
 from harvis.ui.visualizer_window import VisualizerWindow
@@ -87,9 +94,21 @@ class HarvisSettingsWindow(SettingsWindow):
         self.ai_provider.addItems(("Gemini Live",))
         form.addRow("AI provider", self.ai_provider)
 
+        self.gemini_api_key = QLineEdit()
+        self.gemini_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+        self.gemini_api_key.setClearButtonEnabled(True)
+        form.addRow("Gemini API key", self.gemini_api_key)
+
+        self.gemini_api_key_status = QLabel()
+        self.gemini_api_key_status.setObjectName("mutedLabel")
+        self.gemini_api_key_status.setWordWrap(True)
+        form.addRow(self.gemini_api_key_status)
+        self._refresh_gemini_api_key_status()
+
         note = QLabel(
-            "Gemini Live reads the API key from the GEMINI_API_KEY environment variable. "
-            "The key is never stored in Harvis settings."
+            "Paste a key and choose Save changes. On Windows, Harvis stores it in Windows Credential Manager. "
+            "On Linux, Harvis stores it in a user-only secrets file. The key is never written to settings.json "
+            "or the Git repository. Leave the field blank to keep the currently saved key."
         )
         note.setObjectName("mutedLabel")
         note.setWordWrap(True)
@@ -98,6 +117,24 @@ class HarvisSettingsWindow(SettingsWindow):
         layout.addWidget(note)
         layout.addStretch(1)
         return page
+
+    def _refresh_gemini_api_key_status(self) -> None:
+        if not hasattr(self, "gemini_api_key"):
+            return
+
+        try:
+            configured = bool(get_gemini_api_key())
+        except CredentialStoreError:
+            configured = False
+
+        if configured:
+            self.gemini_api_key.setPlaceholderText(
+                "API key saved - paste a new key here to replace it"
+            )
+            self.gemini_api_key_status.setText("API key status: configured")
+        else:
+            self.gemini_api_key.setPlaceholderText("Paste your Gemini API key")
+            self.gemini_api_key_status.setText("API key status: not configured")
 
     def _build_visualizer_page(self):
         page = super()._build_visualizer_page()
@@ -132,6 +169,8 @@ class HarvisSettingsWindow(SettingsWindow):
             index = self.speech_language.findData(self._settings.speech_language)
             if index >= 0:
                 self.speech_language.setCurrentIndex(index)
+
+        self._refresh_gemini_api_key_status()
 
     def _open_visualizer_preview(self) -> None:
         if self._visualizer_preview is not None:
@@ -212,6 +251,22 @@ class HarvisSettingsWindow(SettingsWindow):
 
     def _save_settings(self) -> None:
         selected_language = self.speech_language.currentData()
+        pending_api_key = self.gemini_api_key.text().strip()
+        api_key_changed = False
+
+        if pending_api_key:
+            try:
+                save_gemini_api_key(pending_api_key)
+            except (CredentialStoreError, ValueError) as exc:
+                self.statusBar().showMessage(
+                    f"Could not save Gemini API key: {exc}",
+                    6000,
+                )
+                return
+            api_key_changed = True
+            self.gemini_api_key.clear()
+            self._refresh_gemini_api_key_status()
+
         super()._save_settings()
 
         if isinstance(selected_language, str) and selected_language:
@@ -220,8 +275,17 @@ class HarvisSettingsWindow(SettingsWindow):
 
         if self._assistant is not None:
             self._assistant.apply_settings(self._settings)
+            if api_key_changed:
+                self._assistant.stop()
+                self._assistant.start()
 
         self.sync_live_visualizer()
+
+        if api_key_changed:
+            self.statusBar().showMessage(
+                "Settings saved. Gemini Live restarted with the saved API key.",
+                4000,
+            )
 
     def closeEvent(self, event) -> None:
         if self._visualizer_preview is not None:
@@ -257,6 +321,8 @@ def main() -> int:
     app = QApplication(qt_args)
     app.setApplicationName("Harvis")
     app.setOrganizationName("Harvis")
+
+    sync_gemini_api_key_environment()
 
     settings_store = SettingsStore()
     assistant: HarvisAssistant | None = None
