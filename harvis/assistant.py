@@ -19,11 +19,15 @@ class HarvisAssistant:
         *,
         on_heard: Callable[[str], None] | None = None,
         on_response: Callable[[str], None] | None = None,
+        on_audio_level: Callable[[float], None] | None = None,
+        on_spectrum: Callable[[list[float] | None], None] | None = None,
         on_status: Callable[[str], None] | None = None,
     ) -> None:
         self._settings = settings
         self._on_heard = on_heard
         self._on_response = on_response
+        self._on_audio_level = on_audio_level
+        self._on_spectrum = on_spectrum
         self._on_status = on_status
         self._router = IntentRouter()
 
@@ -33,6 +37,8 @@ class HarvisAssistant:
             execute_tool=self._execute_tool,
             on_input_transcript=self._handle_input_transcript,
             on_output_transcript=self._handle_output_transcript,
+            on_audio_level=self._handle_audio_level,
+            on_spectrum=self._handle_spectrum,
             on_ready=self._handle_live_ready,
             on_status=self._notify_status,
             on_error=self._handle_live_error,
@@ -71,6 +77,16 @@ class HarvisAssistant:
         callback = self._on_response
         if callback is not None:
             callback(text)
+
+    def _handle_audio_level(self, level: float) -> None:
+        callback = self._on_audio_level
+        if callback is not None:
+            callback(level)
+
+    def _handle_spectrum(self, spectrum: list[float] | None) -> None:
+        callback = self._on_spectrum
+        if callback is not None:
+            callback(spectrum)
 
     def _handle_live_error(self, error: Exception) -> None:
         self._notify_status(f"Gemini Live unavailable: {error}")
