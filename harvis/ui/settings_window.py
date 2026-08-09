@@ -9,6 +9,7 @@ from PySide6.QtCore import (
     QRect,
     QTimer,
     Qt,
+    Signal,
 )
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -20,8 +21,6 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QMainWindow,
     QPushButton,
     QSlider,
@@ -31,7 +30,15 @@ from PySide6.QtWidgets import (
 )
 
 from harvis.config import HarvisSettings, SettingsStore
-from harvis.ui.theme import APP_STYLESHEET, TERTIARY
+from harvis.ui.theme import (
+    APP_STYLESHEET,
+    PRIMARY,
+    SECONDARY,
+    SURFACE,
+    SURFACE_HOVER,
+    TERTIARY,
+    TEXT_PRIMARY,
+)
 
 
 class _SnapshotLayer(QWidget):
@@ -58,58 +65,97 @@ class _SnapshotLayer(QWidget):
 
 
 class AnimatedStackedWidget(QStackedWidget):
-    """Switch pages with a soft slide, crossfade, and motion-blur transition."""
+    """Move through every intermediate page with fast motion-blurred transitions."""
 
-    TRANSITION_DURATION_MS = 360
-    MAX_SLIDE_DISTANCE = 52
-    BLUR_RADIUS = 8.0
+    INTERMEDIATE_DURATION_MS = 88
+    FINAL_DURATION_MS = 180
+    INTERMEDIATE_BLUR_RADIUS = 12.0
+    FINAL_BLUR_RADIUS = 8.0
+    SLIDE_DISTANCE = 56
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._transition_group: QParallelAnimationGroup | None = None
-        self._transition_target: int | None = None
         self._transition_layers: list[_SnapshotLayer] = []
+        self._route: list[int] = []
+        self._active_step_target: int | None = None
+        self._pending_target: int | None = None
 
     def setCurrentIndexAnimated(self, index: int) -> None:
         if index < 0 or index >= self.count():
             return
 
         if self._transition_group is not None:
-            self._transition_group.stop()
-            self._finish_transition()
+            self._pending_target = index
+            return
 
+        if index == self.currentIndex():
+            return
+
+        self._pending_target = None
+        self._route = self._build_route(self.currentIndex(), index)
+        self._run_next_step()
+
+    @staticmethod
+    def _build_route(current_index: int, target_index: int) -> list[int]:
+        if current_index == target_index:
+            return []
+
+        direction = 1 if target_index > current_index else -1
+        return list(range(current_index + direction, target_index + direction, direction))
+
+    def _run_next_step(self) -> None:
+        if not self._route:
+            if self._pending_target is not None:
+                target = self._pending_target
+                self._pending_target = None
+                self._route = self._build_route(self.currentIndex(), target)
+                if self._route:
+                    self._run_next_step()
+            return
+
+        next_index = self._route.pop(0)
+        is_final_step = not self._route
+        self._animate_step(next_index, is_final_step)
+
+    def _animate_step(self, next_index: int, is_final_step: bool) -> None:
         current_index = self.currentIndex()
-        if current_index == index:
+        if current_index == next_index:
+            self._run_next_step()
             return
 
         if self.width() <= 1 or self.height() <= 1:
-            super().setCurrentIndex(index)
+            super().setCurrentIndex(next_index)
+            self._run_next_step()
             return
 
         current_widget = self.widget(current_index)
-        target_widget = self.widget(index)
+        target_widget = self.widget(next_index)
         current_pixmap = current_widget.grab()
 
         self.setUpdatesEnabled(False)
-        super().setCurrentIndex(index)
+        super().setCurrentIndex(next_index)
         target_pixmap = target_widget.grab()
         super().setCurrentIndex(current_index)
         self.setUpdatesEnabled(True)
         self.update()
 
         if current_pixmap.isNull() or target_pixmap.isNull():
-            super().setCurrentIndex(index)
+            super().setCurrentIndex(next_index)
+            self._run_next_step()
             return
 
-        direction = 1 if index > current_index else -1
-        distance = min(
-            self.MAX_SLIDE_DISTANCE,
-            max(28, int(self.width() * 0.055)),
+        direction = 1 if next_index > current_index else -1
+        duration = self.FINAL_DURATION_MS if is_final_step else self.INTERMEDIATE_DURATION_MS
+        blur_radius = (
+            self.FINAL_BLUR_RADIUS
+            if is_final_step
+            else self.INTERMEDIATE_BLUR_RADIUS
         )
 
         base_rect = self.rect()
-        outgoing_end = base_rect.translated(-direction * distance, 0)
-        incoming_start = base_rect.translated(direction * distance, 0)
+        outgoing_end = base_rect.translated(0, -direction * self.SLIDE_DISTANCE)
+        incoming_start = base_rect.translated(0, direction * self.SLIDE_DISTANCE)
 
         outgoing = _SnapshotLayer(self, current_pixmap)
         incoming = _SnapshotLayer(self, target_pixmap)
@@ -119,7 +165,7 @@ class AnimatedStackedWidget(QStackedWidget):
         outgoing.opacity_effect.setOpacity(1.0)
         incoming.opacity_effect.setOpacity(0.0)
         outgoing.blur_effect.setBlurRadius(0.0)
-        incoming.blur_effect.setBlurRadius(self.BLUR_RADIUS)
+        incoming.blur_effect.setBlurRadius(blur_radius)
 
         outgoing.show()
         incoming.show()
@@ -127,7 +173,11 @@ class AnimatedStackedWidget(QStackedWidget):
         incoming.raise_()
 
         group = QParallelAnimationGroup(self)
-        easing = QEasingCurve.Type.OutCubic
+        easing = (
+            QEasingCurve.Type.OutCubic
+            if is_final_step
+            else QEasingCurve.Type.InOutQuad
+        )
 
         group.addAnimation(
             self._make_animation(
@@ -135,7 +185,7 @@ class AnimatedStackedWidget(QStackedWidget):
                 b"geometry",
                 base_rect,
                 outgoing_end,
-                self.TRANSITION_DURATION_MS,
+                duration,
                 easing,
             )
         )
@@ -145,7 +195,7 @@ class AnimatedStackedWidget(QStackedWidget):
                 b"geometry",
                 incoming_start,
                 base_rect,
-                self.TRANSITION_DURATION_MS,
+                duration,
                 easing,
             )
         )
@@ -154,8 +204,8 @@ class AnimatedStackedWidget(QStackedWidget):
                 outgoing.opacity_effect,
                 b"opacity",
                 1.0,
-                0.0,
-                250,
+                0.16 if not is_final_step else 0.0,
+                duration,
                 easing,
             )
         )
@@ -163,9 +213,9 @@ class AnimatedStackedWidget(QStackedWidget):
             self._make_animation(
                 incoming.opacity_effect,
                 b"opacity",
-                0.0,
+                0.15 if not is_final_step else 0.0,
                 1.0,
-                self.TRANSITION_DURATION_MS,
+                duration,
                 easing,
             )
         )
@@ -174,8 +224,8 @@ class AnimatedStackedWidget(QStackedWidget):
                 outgoing.blur_effect,
                 b"blurRadius",
                 0.0,
-                self.BLUR_RADIUS * 0.75,
-                260,
+                blur_radius,
+                duration,
                 easing,
             )
         )
@@ -183,39 +233,60 @@ class AnimatedStackedWidget(QStackedWidget):
             self._make_animation(
                 incoming.blur_effect,
                 b"blurRadius",
-                self.BLUR_RADIUS,
+                blur_radius,
                 0.0,
-                self.TRANSITION_DURATION_MS,
+                duration,
                 easing,
             )
         )
 
-        self._transition_target = index
+        self._active_step_target = next_index
         self._transition_layers = [outgoing, incoming]
         self._transition_group = group
 
-        group.finished.connect(self._finish_transition)
+        group.finished.connect(self._finish_step)
         group.start()
 
-    def resizeEvent(self, event) -> None:
-        if self._transition_group is not None:
-            self._transition_group.stop()
-            self._finish_transition()
-        super().resizeEvent(event)
-
-    def _finish_transition(self) -> None:
-        target = self._transition_target
+    def _finish_step(self) -> None:
+        target = self._active_step_target
 
         for layer in self._transition_layers:
             layer.hide()
             layer.deleteLater()
 
         self._transition_layers = []
-        self._transition_target = None
         self._transition_group = None
+        self._active_step_target = None
 
         if target is not None and 0 <= target < self.count():
             super().setCurrentIndex(target)
+
+        if self._pending_target is not None:
+            pending_target = self._pending_target
+            self._pending_target = None
+            self._route = self._build_route(self.currentIndex(), pending_target)
+
+        QTimer.singleShot(0, self._run_next_step)
+
+    def resizeEvent(self, event) -> None:
+        if self._transition_group is not None:
+            self._transition_group.stop()
+            target = self._active_step_target
+
+            for layer in self._transition_layers:
+                layer.hide()
+                layer.deleteLater()
+
+            self._transition_layers = []
+            self._transition_group = None
+            self._active_step_target = None
+
+            if target is not None and 0 <= target < self.count():
+                super().setCurrentIndex(target)
+
+            self._route = []
+
+        super().resizeEvent(event)
 
     @staticmethod
     def _make_animation(
@@ -234,75 +305,175 @@ class AnimatedStackedWidget(QStackedWidget):
         return animation
 
 
-class AnimatedSidebar(QListWidget):
-    """Sidebar with a smoothly sliding tertiary-color selection indicator."""
+class AnimatedSidebar(QFrame):
+    """Sidebar with a rounded secondary-color bubble that glides between sections."""
+
+    currentRowChanged = Signal(int)
+
+    BUTTON_HEIGHT = 58
+    CONTENT_MARGIN = 10
+    CONTENT_SPACING = 4
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-
-        self._indicator = QFrame(self.viewport())
-        self._indicator.setFixedWidth(4)
-        self._indicator.setStyleSheet(
-            f"background-color: {TERTIARY}; border: none; border-radius: 2px;"
+        self.setObjectName("animatedSidebar")
+        self.setFixedWidth(210)
+        self.setStyleSheet(
+            f"""
+            QFrame#animatedSidebar {{
+                background-color: {SURFACE};
+                border: 1px solid {TERTIARY};
+                border-radius: 12px;
+            }}
+            """
         )
-        self._indicator.hide()
 
-        self._indicator_animation: QPropertyAnimation | None = None
-        self.currentRowChanged.connect(self._animate_indicator)
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(
+            self.CONTENT_MARGIN,
+            self.CONTENT_MARGIN,
+            self.CONTENT_MARGIN,
+            self.CONTENT_MARGIN,
+        )
+        self._layout.setSpacing(self.CONTENT_SPACING)
 
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        QTimer.singleShot(0, lambda: self._position_indicator(self.currentRow(), False))
+        self._bubble = QFrame(self)
+        self._bubble.setAttribute(
+            Qt.WidgetAttribute.WA_TransparentForMouseEvents,
+            True,
+        )
+        self._bubble.setStyleSheet(
+            f"background-color: {SECONDARY}; border: none; border-radius: 8px;"
+        )
+        self._bubble.hide()
+
+        self._buttons: list[QPushButton] = []
+        self._current_row = -1
+        self._bubble_animation: QPropertyAnimation | None = None
+
+    def addItem(self, text: str) -> None:
+        index = len(self._buttons)
+
+        button = QPushButton(text, self)
+        button.setFixedHeight(self.BUTTON_HEIGHT)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.clicked.connect(lambda checked=False, row=index: self.setCurrentRow(row))
+
+        self._buttons.append(button)
+        self._layout.addWidget(button)
+        self._refresh_button_styles()
+
+        self._bubble.lower()
+
+    def addStretch(self) -> None:
+        self._layout.addStretch(1)
+
+    def currentRow(self) -> int:
+        return self._current_row
+
+    def setCurrentRow(self, row: int, animate: bool = True) -> None:
+        if row < 0 or row >= len(self._buttons):
+            return
+
+        if row == self._current_row:
+            return
+
+        previous_row = self._current_row
+        self._current_row = row
+        self._refresh_button_styles()
+
+        step_count = abs(row - previous_row) if previous_row >= 0 else 0
+        QTimer.singleShot(
+            0,
+            lambda: self._move_bubble(row, animate and previous_row >= 0, step_count),
+        )
+
+        self.currentRowChanged.emit(row)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self._position_indicator(self.currentRow(), False)
+        QTimer.singleShot(0, self._sync_bubble)
 
-    def _animate_indicator(self, row: int) -> None:
-        self._position_indicator(row, True)
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        QTimer.singleShot(0, self._sync_bubble)
 
-    def _position_indicator(self, row: int, animated: bool) -> None:
-        item = self.item(row)
-        if item is None:
-            self._indicator.hide()
+    def _move_bubble(self, row: int, animate: bool, step_count: int) -> None:
+        if row < 0 or row >= len(self._buttons):
             return
 
-        item_rect = self.visualItemRect(item)
-        if not item_rect.isValid():
+        target_rect = self._buttons[row].geometry()
+
+        if target_rect.width() <= 0 or target_rect.height() <= 0:
+            QTimer.singleShot(
+                0,
+                lambda: self._move_bubble(row, animate, step_count),
+            )
             return
 
-        target_rect = QRect(
-            5,
-            item_rect.top() + 7,
-            4,
-            max(18, item_rect.height() - 14),
-        )
+        self._bubble.show()
+        self._bubble.lower()
 
-        if not self._indicator.isVisible() or not animated:
-            if self._indicator_animation is not None:
-                self._indicator_animation.stop()
-                self._indicator_animation = None
-            self._indicator.setGeometry(target_rect)
-            self._indicator.show()
-            self._indicator.raise_()
+        if not animate or self._bubble.geometry().isNull():
+            self._bubble.setGeometry(target_rect)
             return
 
-        if self._indicator_animation is not None:
-            self._indicator_animation.stop()
+        if self._bubble_animation is not None:
+            self._bubble_animation.stop()
 
-        animation = QPropertyAnimation(self._indicator, b"geometry", self)
-        animation.setStartValue(self._indicator.geometry())
+        duration = min(560, 140 + max(1, step_count) * 68)
+
+        animation = QPropertyAnimation(self._bubble, b"geometry", self)
+        animation.setStartValue(self._bubble.geometry())
         animation.setEndValue(target_rect)
-        animation.setDuration(280)
-        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-        animation.finished.connect(self._clear_indicator_animation)
+        animation.setDuration(duration)
+        animation.setEasingCurve(QEasingCurve.Type.InOutCubic)
 
-        self._indicator_animation = animation
+        self._bubble_animation = animation
+        animation.finished.connect(self._clear_bubble_animation)
         animation.start()
 
-    def _clear_indicator_animation(self) -> None:
-        self._indicator_animation = None
-        self._indicator.raise_()
+    def _sync_bubble(self) -> None:
+        if self._current_row < 0 or self._current_row >= len(self._buttons):
+            return
+
+        if self._bubble_animation is not None:
+            self._bubble_animation.stop()
+            self._bubble_animation = None
+
+        self._bubble.setGeometry(self._buttons[self._current_row].geometry())
+        self._bubble.show()
+        self._bubble.lower()
+
+    def _clear_bubble_animation(self) -> None:
+        self._bubble_animation = None
+
+    def _refresh_button_styles(self) -> None:
+        for index, button in enumerate(self._buttons):
+            is_selected = index == self._current_row
+            color = PRIMARY if is_selected else TEXT_PRIMARY
+            weight = 700 if is_selected else 400
+            hover_background = "transparent" if is_selected else SURFACE_HOVER
+
+            button.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background-color: transparent;
+                    color: {color};
+                    border: none;
+                    border-radius: 8px;
+                    padding: 10px 12px;
+                    text-align: left;
+                    font-weight: {weight};
+                }}
+                QPushButton:hover {{
+                    background-color: {hover_background};
+                }}
+                QPushButton:pressed {{
+                    background-color: transparent;
+                }}
+                """
+            )
 
 
 class SettingsWindow(QMainWindow):
@@ -320,45 +491,18 @@ class SettingsWindow(QMainWindow):
         super().__init__()
         self._settings_store = settings_store
         self._settings = settings_store.load()
-        self._intro_played = False
         self._intro_animation: QPropertyAnimation | None = None
 
         self.setWindowTitle("Harvis Settings")
         self.resize(980, 650)
         self.setMinimumSize(820, 540)
         self.setStyleSheet(APP_STYLESHEET)
+        self.setWindowOpacity(0.0)
 
         self._build_ui()
         self._load_settings_into_controls()
 
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        if not self._intro_played:
-            self._intro_played = True
-            QTimer.singleShot(0, self._play_intro_animation)
-
-    def _play_intro_animation(self) -> None:
-        central_widget = self.centralWidget()
-        if central_widget is None:
-            return
-
-        effect = QGraphicsOpacityEffect(central_widget)
-        effect.setOpacity(0.0)
-        central_widget.setGraphicsEffect(effect)
-
-        animation = QPropertyAnimation(effect, b"opacity", self)
-        animation.setStartValue(0.0)
-        animation.setEndValue(1.0)
-        animation.setDuration(420)
-        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-        def finish_intro() -> None:
-            central_widget.setGraphicsEffect(None)
-            self._intro_animation = None
-
-        animation.finished.connect(finish_intro)
-        self._intro_animation = animation
-        animation.start()
+        QTimer.singleShot(0, self._start_intro_animation)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -378,8 +522,6 @@ class SettingsWindow(QMainWindow):
         content_layout.setSpacing(18)
 
         self.sidebar = AnimatedSidebar()
-        self.sidebar.setFixedWidth(210)
-
         self.pages = AnimatedStackedWidget()
 
         page_builders: dict[str, Callable[[], QWidget]] = {
@@ -393,11 +535,12 @@ class SettingsWindow(QMainWindow):
         }
 
         for section_name in self.SECTION_NAMES:
-            self.sidebar.addItem(QListWidgetItem(section_name))
+            self.sidebar.addItem(section_name)
             self.pages.addWidget(page_builders[section_name]())
 
+        self.sidebar.addStretch()
         self.sidebar.currentRowChanged.connect(self.pages.setCurrentIndexAnimated)
-        self.sidebar.setCurrentRow(0)
+        self.sidebar.setCurrentRow(0, animate=False)
 
         content_layout.addWidget(self.sidebar)
         content_layout.addWidget(self.pages, 1)
@@ -412,7 +555,24 @@ class SettingsWindow(QMainWindow):
 
         self.setCentralWidget(root)
 
-    def _page_shell(self, title_text: str, description: str) -> tuple[QWidget, QVBoxLayout]:
+    def _start_intro_animation(self) -> None:
+        animation = QPropertyAnimation(self, b"windowOpacity", self)
+        animation.setStartValue(0.0)
+        animation.setEndValue(1.0)
+        animation.setDuration(220)
+        animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._intro_animation = animation
+        animation.finished.connect(self._clear_intro_animation)
+        animation.start()
+
+    def _clear_intro_animation(self) -> None:
+        self._intro_animation = None
+
+    def _page_shell(
+        self,
+        title_text: str,
+        description: str,
+    ) -> tuple[QWidget, QVBoxLayout]:
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(4, 4, 4, 4)
@@ -498,7 +658,9 @@ class SettingsWindow(QMainWindow):
         self.ai_provider.addItems(("Not configured",))
         form.addRow("AI provider", self.ai_provider)
 
-        note = QLabel("Provider configuration and secure API key storage will be added later.")
+        note = QLabel(
+            "Provider configuration and secure API key storage will be added later."
+        )
         note.setObjectName("mutedLabel")
         note.setWordWrap(True)
 
