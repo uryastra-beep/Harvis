@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, Qt
+from PySide6.QtCore import QPoint, QPointF, Qt
 from PySide6.QtGui import QColor, QMouseEvent, QPainter
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -25,6 +25,7 @@ class TransparentSphereVisualizer(SphereVisualizer):
         self.setMinimumSize(1, 1)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAutoFillBackground(False)
 
     def paintEvent(self, event) -> None:
@@ -36,7 +37,7 @@ class TransparentSphereVisualizer(SphereVisualizer):
 
         width = float(self.width())
         height = float(self.height())
-        center = self.rect().center()
+        center = QPointF(width * 0.5, height * 0.5)
         radius = min(width, height) * 0.27
 
         self._draw_glow(painter, center, radius)
