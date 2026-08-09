@@ -23,6 +23,7 @@ class AssistantSignals(QObject):
 
     status_changed = Signal(str)
     heard = Signal(str)
+    response = Signal(str)
 
 
 class HarvisSettingsWindow(SettingsWindow):
@@ -52,10 +53,11 @@ class HarvisSettingsWindow(SettingsWindow):
                 language_tag,
             )
 
-        language_form.addRow("Speech language", self.speech_language)
+        language_form.addRow("Preferred language", self.speech_language)
 
         language_note = QLabel(
-            "Harvis will request this language from the installed speech recognition engine."
+            "Gemini Live can understand multiple languages. "
+            "This setting controls Harvis's preferred response language."
         )
         language_note.setObjectName("mutedLabel")
         language_note.setWordWrap(True)
@@ -64,6 +66,33 @@ class HarvisSettingsWindow(SettingsWindow):
         if isinstance(layout, QVBoxLayout):
             layout.insertWidget(max(0, layout.count() - 1), language_group)
 
+        return page
+
+    def _build_ai_page(self):
+        page, layout = self._page_shell(
+            "AI",
+            "Configure the cloud intelligence provider used for live conversation.",
+        )
+
+        group = self._glass_group("Provider")
+        form = QFormLayout(group)
+        form.setHorizontalSpacing(18)
+        form.setVerticalSpacing(12)
+
+        self.ai_provider = QComboBox()
+        self.ai_provider.addItems(("Gemini Live",))
+        form.addRow("AI provider", self.ai_provider)
+
+        note = QLabel(
+            "Gemini Live reads the API key from the GEMINI_API_KEY environment variable. "
+            "The key is never stored in Harvis settings."
+        )
+        note.setObjectName("mutedLabel")
+        note.setWordWrap(True)
+
+        layout.addWidget(group)
+        layout.addWidget(note)
+        layout.addStretch(1)
         return page
 
     def _build_visualizer_page(self):
@@ -184,12 +213,17 @@ def main() -> int:
             def show_heard(text: str) -> None:
                 print(f"[Harvis] Heard: {text}", flush=True)
 
+            def show_response(text: str) -> None:
+                print(f"[Harvis] Response: {text}", flush=True)
+
             assistant_signals.status_changed.connect(show_status)
             assistant_signals.heard.connect(show_heard)
+            assistant_signals.response.connect(show_response)
 
             assistant = HarvisAssistant(
                 settings_store.load(),
                 on_heard=assistant_signals.heard.emit,
+                on_response=assistant_signals.response.emit,
                 on_status=assistant_signals.status_changed.emit,
             )
             window.set_assistant(assistant)
@@ -198,7 +232,7 @@ def main() -> int:
     window.show()
 
     if assistant is not None:
-        print("[Harvis] Voice runtime scheduled to start.", flush=True)
+        print("[Harvis] Gemini Live runtime scheduled to start.", flush=True)
         QTimer.singleShot(300, assistant.start)
 
     return app.exec()
