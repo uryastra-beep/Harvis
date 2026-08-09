@@ -7,12 +7,13 @@ from PySide6.QtCore import (
     QEasingCurve,
     QParallelAnimationGroup,
     QPropertyAnimation,
+    QPointF,
     QRect,
     QTimer,
     Qt,
     Signal,
 )
-from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPointF, QRadialGradient
+from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QRadialGradient
 from PySide6.QtWidgets import (
     QAbstractButton,
     QCheckBox,
@@ -414,7 +415,9 @@ class LiquidNavButton(QAbstractButton):
             )
 
         font = self.font()
-        font.setWeight(700 if self._selected else 450)
+        font.setWeight(
+            QFont.Weight.Bold if self._selected else QFont.Weight.Normal
+        )
         painter.setFont(font)
         painter.setPen(text_color)
 
