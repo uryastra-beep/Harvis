@@ -31,8 +31,9 @@ The repository currently contains:
 - Windows master-volume support through pycaw.
 - Linux master-volume support through `wpctl` or `pactl`.
 - Preferred language settings for Spanish (Latin America) and English (United States).
-- A real-time sphere visualizer and bar visualizer.
-- Automated tests for routing, settings persistence, and the legacy spoken-command parser.
+- A live sphere visualizer driven by the actual Gemini output amplitude.
+- A live bar visualizer driven by real-time frequency analysis of Gemini output PCM audio.
+- Automated tests for routing, settings persistence, the legacy spoken-command parser, and Gemini audio analysis.
 
 The current Gemini Live prototype streams microphone audio while Harvis is running. The model is instructed to respond or use tools only when addressed as `Harvis` or `Jarvis`. A dedicated local low-power wake-word engine will be added later so idle audio does not need to be sent to the cloud.
 
@@ -45,6 +46,8 @@ Microphone
 Gemini Live
     |
     +--> Native audio response --> Speakers
+    |                         |
+    |                         +--> RMS + spectrum analysis --> Live visualizer
     |
     +--> Function call --> Harvis local tool --> Windows / Linux
 ```
@@ -148,21 +151,23 @@ Gemini Live can still understand multiple languages. Native audio models choose 
 
 The active provider is `Gemini Live`. The API key is read from `GEMINI_API_KEY` and is not written to Harvis settings.
 
-## Preview visualizers
+### Visualizer
 
-Sphere:
+When `Enable visualizer` is active, Harvis opens the selected live visualizer with the normal application. The sphere reacts to the actual output amplitude and the bars use a 42-bin real-time frequency analysis of the Gemini voice PCM stream. Sensitivity and visualizer type are applied from Settings.
+
+The separate preview button and preview CLI commands remain available and use simulated motion so the visualizer can be inspected without a live Gemini response.
+
+Sphere preview:
 
 ```powershell
 python -m harvis --visualizer-preview sphere
 ```
 
-Bars:
+Bars preview:
 
 ```powershell
 python -m harvis --visualizer-preview bars
 ```
-
-The visualizer preview still uses simulated audio motion. Connecting the live Gemini output PCM stream to the visualizer is a later integration step.
 
 ## Tests
 
