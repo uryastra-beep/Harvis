@@ -36,13 +36,14 @@ class HarvisAssistant:
         self._listener = SapiSpeechListener(
             on_text=self._handle_recognition,
             should_ignore=self._speaking_event.is_set,
+            on_ready=self._handle_listener_ready,
             on_error=self._handle_listener_error,
         )
 
     def start(self) -> None:
+        self._notify_status("Starting voice assistant")
         self._voice.start()
         self._listener.start()
-        self._notify_status("Listening for Harvis")
 
     def stop(self) -> None:
         self._listener.stop()
@@ -55,6 +56,10 @@ class HarvisAssistant:
 
     def speak(self, text: str) -> None:
         self._voice.speak(text)
+
+    def _handle_listener_ready(self) -> None:
+        self._notify_status("Listening for Harvis")
+        self.speak("Harvis is online.")
 
     def _handle_recognition(self, text: str) -> None:
         if self._on_heard is not None:
@@ -95,7 +100,8 @@ class HarvisAssistant:
             self._notify_status("Speaking")
         else:
             self._speaking_event.clear()
-            self._notify_status("Listening for Harvis")
+            if self._listener.is_ready:
+                self._notify_status("Listening for Harvis")
 
     def _handle_listener_error(self, error: Exception) -> None:
         self._notify_status(f"Speech recognition unavailable: {error}")
