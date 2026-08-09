@@ -22,6 +22,12 @@ class _RecognitionSink:
     def _ISpeechRecoContextEvents_Recognition(self, *args) -> None:
         self._handle_recognition(args)
 
+    def FalseRecognition(self, *args) -> None:
+        return
+
+    def _ISpeechRecoContextEvents_FalseRecognition(self, *args) -> None:
+        return
+
     def _handle_recognition(self, args: tuple[object, ...]) -> None:
         if self._should_ignore is not None and self._should_ignore():
             return
@@ -50,20 +56,28 @@ class SapiSpeechListener:
         on_text: Callable[[str], None],
         *,
         should_ignore: Callable[[], bool] | None = None,
+        on_ready: Callable[[], None] | None = None,
         on_error: Callable[[Exception], None] | None = None,
     ) -> None:
         self._on_text = on_text
         self._should_ignore = should_ignore
+        self._on_ready = on_ready
         self._on_error = on_error
 
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
+        self._ready_event = threading.Event()
+
+    @property
+    def is_ready(self) -> bool:
+        return self._ready_event.is_set()
 
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
 
         self._stop_event.clear()
+        self._ready_event.clear()
         self._thread = threading.Thread(
             target=self._worker,
             name="HarvisSapiListener",
@@ -79,6 +93,7 @@ class SapiSpeechListener:
             thread.join(timeout=1.5)
 
         self._thread = None
+        self._ready_event.clear()
 
     def _worker(self) -> None:
         CoInitialize()
@@ -89,11 +104,7 @@ class SapiSpeechListener:
         try:
             recognition_context = CreateObject("SAPI.SpSharedRecoContext")
             grammar = recognition_context.CreateGrammar(0)
-
-            try:
-                grammar.DictationLoad("", 0)
-            except Exception:
-                pass
+            grammar.DictationLoad("", 0)
 
             sink = _RecognitionSink(
                 on_text=self._on_text,
@@ -102,13 +113,21 @@ class SapiSpeechListener:
             connection = GetEvents(recognition_context, sink)
             grammar.DictationSetState(self.SGDS_ACTIVE)
 
+            self._ready_event.set()
+            callback = self._on_ready
+            if callback is not None:
+                callback()
+
             while not self._stop_event.is_set():
                 PumpEvents(0.05)
         except Exception as exc:
+            self._ready_event.clear()
             callback = self._on_error
             if callback is not None:
                 callback(exc)
         finally:
+            self._ready_event.clear()
+
             if grammar is not None:
                 try:
                     grammar.DictationSetState(self.SGDS_INACTIVE)
