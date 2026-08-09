@@ -16,6 +16,114 @@ from harvis.core.router import IntentRouter
 from harvis.voice.gemini_live import GeminiLiveVoice
 
 
+class HarvisGeminiLiveVoice(GeminiLiveVoice):
+    """Gemini Live runtime with Harvis desktop-control tools registered."""
+
+    @staticmethod
+    def _tool_declarations() -> list[dict[str, Any]]:
+        base_declarations = GeminiLiveVoice._tool_declarations()
+        base_functions = list(base_declarations[0]["function_declarations"])
+
+        desktop_functions = [
+            {
+                "name": "open_application",
+                "description": (
+                    "Open a supported desktop application on the user's computer. "
+                    "Use this instead of opening a website when the user asks for an installed app."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "app_name": {
+                            "type": "string",
+                            "description": (
+                                "Application name such as chrome, edge, firefox, spotify, discord, "
+                                "vscode, notepad, calculator, terminal, settings, or explorer."
+                            ),
+                        }
+                    },
+                    "required": ["app_name"],
+                },
+            },
+            {
+                "name": "close_application",
+                "description": (
+                    "Close a supported desktop application's visible windows gracefully. "
+                    "Use only when the user explicitly asks to close or quit the application."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "app_name": {
+                            "type": "string",
+                            "description": (
+                                "Application name such as chrome, edge, firefox, spotify, discord, "
+                                "vscode, notepad, calculator, terminal, or settings."
+                            ),
+                        }
+                    },
+                    "required": ["app_name"],
+                },
+            },
+            {
+                "name": "browser_control",
+                "description": (
+                    "Control the currently focused browser window. "
+                    "Use this for tab and navigation actions in Chrome or another supported browser."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": [
+                                "close_tab",
+                                "new_tab",
+                                "reopen_tab",
+                                "refresh",
+                                "back",
+                                "forward",
+                                "focus_address",
+                            ],
+                            "description": "Browser action to perform in the active browser window.",
+                        }
+                    },
+                    "required": ["action"],
+                },
+            },
+            {
+                "name": "media_control",
+                "description": (
+                    "Control system media playback, including Spotify and other media applications."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": [
+                                "play_pause",
+                                "next_track",
+                                "previous_track",
+                            ],
+                            "description": "Media playback action to perform.",
+                        }
+                    },
+                    "required": ["action"],
+                },
+            },
+        ]
+
+        return [
+            {
+                "function_declarations": [
+                    *base_functions,
+                    *desktop_functions,
+                ]
+            }
+        ]
+
+
 class HarvisAssistant:
     """Coordinate Gemini Live voice, local tools, and application status."""
 
@@ -37,7 +145,7 @@ class HarvisAssistant:
         self._on_status = on_status
         self._router = IntentRouter()
 
-        self._voice = GeminiLiveVoice(
+        self._voice = HarvisGeminiLiveVoice(
             language_tag=settings.speech_language,
             voice_volume=settings.voice_volume,
             execute_tool=self._execute_tool,
