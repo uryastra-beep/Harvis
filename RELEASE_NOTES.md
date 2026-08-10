@@ -18,10 +18,18 @@ Harvis is a Python desktop personal assistant that combines Gemini Live conversa
 - Visual clicking with Gemini Vision as the primary locator, a local fallback stack, and a final Gemini Vision retry.
 - Confirmation requirement for sensitive or destructive visual actions.
 - Live Sphere and Bars visualizers driven by Gemini output audio.
+- Click the live Sphere to mute or unmute microphone forwarding without disconnecting Gemini Live.
+- A visible diagonal indicator on the Sphere while the microphone is muted.
 - Optional `#G6m2i9` AI-authorship watermark for content Harvis is asked to write.
 - Watermark intent filtering so searches, URLs, navigation, and other operational typing stay unmarked.
 - Improved Unicode typing and explicit physical Enter handling.
 - Cleaner Gemini Live startup, shutdown, and latency behavior.
+
+### Sphere microphone control
+
+In Speaking mode, a short click on the live Sphere toggles microphone forwarding. Harvis keeps the Gemini Live session connected and leaves the audio stream open, so unmuting is immediate.
+
+Dragging the Sphere continues to reposition it without toggling the microphone. While muted, the Sphere displays a diagonal tertiary-color indicator.
 
 ### AI watermark behavior
 
