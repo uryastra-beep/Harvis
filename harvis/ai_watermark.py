@@ -32,7 +32,7 @@ _GENERIC_CREATION_RE = re.compile(
 
 _SEARCH_OR_NAVIGATION_RE = re.compile(
     r"\b(?:"
-    r"busca\w*|buscar|googlea\w*|googlear|buscador|busqueda|"
+    r"busca\w*|buscar|googlea\w*|googlear|buscador|busqueda|encuentra\w*|averigua\w*|consulta\w*|"
     r"search|searches|searching|google|look\s+up|find|"
     r"barra\s+de\s+busqueda|campo\s+de\s+busqueda|barra\s+de\s+direcciones|"
     r"search\s+bar|search\s+box|address\s+bar|"
@@ -58,23 +58,21 @@ def should_watermark_ai_authored_text(user_request: str) -> bool:
     if not value:
         return False
 
+    # Search, URL, navigation, and browser-field requests are operational typing.
+    # They take priority so phrases such as "write this in Google" stay unmarked.
+    if _URL_OR_LINK_RE.search(value) or _SEARCH_OR_NAVIGATION_RE.search(value):
+        return False
+
     has_authored_content = _AUTHORED_CONTENT_RE.search(value) is not None
     has_strong_writing = _STRONG_WRITING_RE.search(value) is not None
     has_generic_creation = _GENERIC_CREATION_RE.search(value) is not None
 
-    # Explicit requests to create a recognizable piece of written content win even
-    # when the user also asks Harvis to research something first.
-    if has_authored_content and (has_strong_writing or has_generic_creation):
+    if has_strong_writing:
         return True
 
-    # Searches, URLs, navigation, and browser-field entry are operational typing,
-    # not AI-authored content, so they must never receive the authorship marker.
-    if _URL_OR_LINK_RE.search(value) or _SEARCH_OR_NAVIGATION_RE.search(value):
-        return False
-
-    # Direct writing verbs such as "write", "redacta", or "escribe" are enough
-    # when no search/navigation context is present.
-    return has_strong_writing
+    # Generic verbs such as "make" or "create" need a recognizable written-content
+    # noun so commands such as "create a folder" are not mislabeled as authorship.
+    return bool(has_authored_content and has_generic_creation)
 
 
 __all__ = ["should_watermark_ai_authored_text"]
