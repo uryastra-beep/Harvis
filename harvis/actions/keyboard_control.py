@@ -73,7 +73,11 @@ def press_key(key: str, count: int = 1) -> dict[str, Any]:
     }
 
 
-def type_lines(lines: list[str]) -> dict[str, Any]:
+def type_lines(
+    lines: list[str],
+    *,
+    apply_watermark: bool = True,
+) -> dict[str, Any]:
     """Type multiple literal lines with exactly one physical Enter between them."""
 
     if not isinstance(lines, list):
@@ -100,7 +104,7 @@ def type_lines(lines: list[str]) -> dict[str, Any]:
         _validate_text_payload(value)
         normalized_lines.append(value)
 
-    watermark_pending = _ai_watermark_enabled
+    watermark_pending = _ai_watermark_enabled and apply_watermark
     for index, value in enumerate(normalized_lines):
         if value:
             type_text(value, apply_watermark=watermark_pending)
