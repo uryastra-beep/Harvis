@@ -13,6 +13,7 @@ SUSPICIOUS_PUNCTUATION_RE = re.compile(
     r"(?:([!?¿¡.,;:])\1{3,}|[!?¿¡.,;:]{6,})"
 )
 SUPPORTED_KEYS = {"enter"}
+MAX_LINE_SEQUENCE = 50
 
 
 def type_text(text: str) -> dict[str, Any]:
@@ -58,6 +59,47 @@ def press_key(key: str, count: int = 1) -> dict[str, Any]:
         "status": "completed",
         "key": normalized_key,
         "count": normalized_count,
+    }
+
+
+def type_lines(lines: list[str]) -> dict[str, Any]:
+    """Type multiple literal lines with exactly one physical Enter between them."""
+
+    if not isinstance(lines, list):
+        raise ValueError("type_lines requires a list of text lines.")
+    if not lines:
+        return {
+            "status": "completed",
+            "lines": 0,
+            "characters": 0,
+            "enters": 0,
+        }
+    if len(lines) > MAX_LINE_SEQUENCE:
+        raise ValueError(
+            f"type_lines supports at most {MAX_LINE_SEQUENCE} lines per call."
+        )
+
+    normalized_lines: list[str] = []
+    for line in lines:
+        value = _normalize_text_payload(str(line))
+        if "\n" in value:
+            raise ValueError(
+                "Each type_lines item must contain exactly one line without newline characters."
+            )
+        _validate_text_payload(value)
+        normalized_lines.append(value)
+
+    for index, value in enumerate(normalized_lines):
+        if value:
+            type_text(value)
+        if index < len(normalized_lines) - 1:
+            press_key("enter")
+
+    return {
+        "status": "completed",
+        "lines": len(normalized_lines),
+        "characters": sum(len(value) for value in normalized_lines),
+        "enters": len(normalized_lines) - 1,
     }
 
 
@@ -292,4 +334,4 @@ def _linux_press_key(key: str, count: int) -> None:
             raise SystemActionError("Harvis could not press the requested Linux key.")
 
 
-__all__ = ["press_key", "type_text"]
+__all__ = ["press_key", "type_lines", "type_text"]
