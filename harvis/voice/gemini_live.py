@@ -20,6 +20,10 @@ INPUT_QUEUE_LIMIT = 8
 TEXT_QUEUE_LIMIT = 12
 SPECTRUM_BINS = 42
 SPECTRUM_ANALYSIS_SAMPLES = 512
+RECONNECT_MAX_CONSECUTIVE_FAILURES = 5
+RECONNECT_BASE_DELAY_SECONDS = 0.75
+RECONNECT_MAX_DELAY_SECONDS = 6.0
+RECONNECT_HEALTHY_RUNTIME_SECONDS = 5.0
 
 ToolExecutor = Callable[[str, dict[str, Any]], Any]
 TextCallback = Callable[[str], None]
@@ -76,6 +80,7 @@ class GeminiLiveVoice:
         self._text_sender_task: asyncio.Task | None = None
         self._receiver_task: asyncio.Task | None = None
         self._mute_input_until = 0.0
+        self._session_resumption_handle: str | None = None
         self._state_lock = threading.Lock()
 
     @property
@@ -101,6 +106,7 @@ class GeminiLiveVoice:
         if self.is_running:
             return
 
+        self._session_resumption_handle = None
         self._stop_event.clear()
         self._thread = threading.Thread(
             target=self._thread_main,
@@ -202,16 +208,108 @@ class GeminiLiveVoice:
             self._pending_text_commands.append(value)
         return True
 
+    @staticmethod
+    def _reconnect_delay_seconds(failure_count: int) -> float:
+        exponent = max(0, int(failure_count) - 1)
+        return min(
+            RECONNECT_MAX_DELAY_SECONDS,
+            RECONNECT_BASE_DELAY_SECONDS * (2**exponent),
+        )
+
     def _thread_main(self) -> None:
+        consecutive_failures = 0
+
         try:
-            asyncio.run(self._run())
-        except Exception as exc:
-            self._emit_silence()
-            self._notify_error(exc)
+            while not self._stop_event.is_set():
+                run_started_at = time.monotonic()
+                try:
+                    asyncio.run(self._run())
+                except Exception as exc:
+                    if self._stop_event.is_set():
+                        break
+
+                    runtime = time.monotonic() - run_started_at
+                    if runtime >= RECONNECT_HEALTHY_RUNTIME_SECONDS:
+                        consecutive_failures = 0
+                    consecutive_failures += 1
+
+                    if consecutive_failures >= RECONNECT_MAX_CONSECUTIVE_FAILURES:
+                        self._emit_silence()
+                        self._notify_error(
+                            GeminiLiveError(
+                                "Gemini Live could not recover after repeated reconnect attempts."
+                            )
+                        )
+                        break
+
+                    delay = self._reconnect_delay_seconds(consecutive_failures)
+                    self._emit_silence()
+                    self._notify_status(
+                        f"Gemini Live connection lost; reconnecting in {delay:.2f} seconds"
+                    )
+                    if self._stop_event.wait(delay):
+                        break
+                    self._notify_status("Reconnecting to Gemini Live")
+                    continue
+
+                if self._stop_event.is_set():
+                    break
+
+                consecutive_failures += 1
+                if consecutive_failures >= RECONNECT_MAX_CONSECUTIVE_FAILURES:
+                    self._notify_error(
+                        GeminiLiveError(
+                            "Gemini Live stopped unexpectedly and could not be restarted."
+                        )
+                    )
+                    break
+
+                delay = self._reconnect_delay_seconds(consecutive_failures)
+                self._notify_status(
+                    f"Gemini Live stopped unexpectedly; reconnecting in {delay:.2f} seconds"
+                )
+                if self._stop_event.wait(delay):
+                    break
         finally:
             current_thread = threading.current_thread()
             if self._thread is current_thread:
                 self._thread = None
+
+    def _build_live_config(self) -> dict[str, Any]:
+        session_resumption: dict[str, Any] = {}
+        if self._session_resumption_handle:
+            session_resumption["handle"] = self._session_resumption_handle
+
+        return {
+            "response_modalities": ["AUDIO"],
+            "input_audio_transcription": {},
+            "output_audio_transcription": {},
+            "speech_config": {
+                "voice_config": {
+                    "prebuilt_voice_config": {
+                        "voice_name": "Iapetus",
+                    }
+                }
+            },
+            "thinking_config": {
+                "thinking_level": "minimal",
+            },
+            "context_window_compression": {
+                "sliding_window": {},
+            },
+            "session_resumption": session_resumption,
+            "system_instruction": self._system_instruction(),
+            "tools": self._tool_declarations(),
+        }
+
+    def _remember_session_resumption_update(self, response) -> None:
+        update = getattr(response, "session_resumption_update", None)
+        if update is None or not bool(getattr(update, "resumable", False)):
+            return
+
+        handle = str(getattr(update, "new_handle", "") or "").strip()
+        if handle:
+            self._session_resumption_handle = handle
 
     async def _run(self) -> None:
         api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -264,23 +362,7 @@ class GeminiLiveVoice:
                 self._output_stream = output_stream
 
             client = genai.Client(api_key=api_key)
-            config = {
-                "response_modalities": ["AUDIO"],
-                "input_audio_transcription": {},
-                "output_audio_transcription": {},
-                "speech_config": {
-                    "voice_config": {
-                        "prebuilt_voice_config": {
-                            "voice_name": "Iapetus",
-                        }
-                    }
-                },
-                "thinking_config": {
-                    "thinking_level": "minimal",
-                },
-                "system_instruction": self._system_instruction(),
-                "tools": self._tool_declarations(),
-            }
+            config = self._build_live_config()
 
             self._notify_status("Connecting to Gemini Live")
 
@@ -320,25 +402,28 @@ class GeminiLiveVoice:
                 try:
                     while not self._stop_event.is_set():
                         if sender is not None and sender.done():
+                            if self._stop_event.is_set():
+                                break
                             await sender
-                            if not self._stop_event.is_set():
-                                raise GeminiLiveError(
-                                    "Gemini Live microphone sender stopped unexpectedly."
-                                )
+                            raise GeminiLiveError(
+                                "Gemini Live microphone sender stopped unexpectedly."
+                            )
 
                         if text_sender.done():
+                            if self._stop_event.is_set():
+                                break
                             await text_sender
-                            if not self._stop_event.is_set():
-                                raise GeminiLiveError(
-                                    "Gemini Live text sender stopped unexpectedly."
-                                )
+                            raise GeminiLiveError(
+                                "Gemini Live text sender stopped unexpectedly."
+                            )
 
                         if receiver.done():
+                            if self._stop_event.is_set():
+                                break
                             await receiver
-                            if not self._stop_event.is_set():
-                                raise GeminiLiveError(
-                                    "Gemini Live receiver stopped unexpectedly."
-                                )
+                            raise GeminiLiveError(
+                                "Gemini Live receiver stopped unexpectedly."
+                            )
 
                         await asyncio.sleep(0.05)
                 finally:
@@ -495,7 +580,11 @@ class GeminiLiveVoice:
             except TimeoutError:
                 continue
 
-            await session.send_realtime_input(text=text)
+            try:
+                await session.send_realtime_input(text=text)
+            except Exception:
+                self._queue_text_command(text)
+                raise
 
     async def _receive_live_messages(self, session, types, output_stream) -> None:
         while not self._stop_event.is_set():
@@ -528,6 +617,12 @@ class GeminiLiveVoice:
         output_stream,
         response,
     ) -> None:
+        self._remember_session_resumption_update(response)
+
+        go_away = getattr(response, "go_away", None)
+        if go_away is not None:
+            self._notify_status("Gemini Live is rotating the connection")
+
         server_content = response.server_content
         if server_content is not None:
             input_transcription = server_content.input_transcription
