@@ -11,6 +11,7 @@ SUPPORTED_SPEECH_LANGUAGES = {
     "es-419": "Spanish (Latin America)",
     "en-US": "English (United States)",
 }
+SUPPORTED_ASSISTANT_MODES = ("Speaking", "Silent")
 USER_NAME_MAX_LENGTH = 48
 
 
@@ -18,6 +19,7 @@ USER_NAME_MAX_LENGTH = 48
 class HarvisSettings:
     start_with_windows: bool = False
     user_name: str = "User"
+    assistant_mode: str = "Speaking"
     voice_volume: int = 70
     microphone_device: str = "System default"
     speech_language: str = "es-419"
@@ -31,6 +33,9 @@ class HarvisSettings:
         self.user_name = normalized_name[:USER_NAME_MAX_LENGTH] or "User"
         self.voice_volume = max(0, min(100, int(self.voice_volume)))
         self.visualizer_sensitivity = max(0, min(100, int(self.visualizer_sensitivity)))
+
+        if self.assistant_mode not in SUPPORTED_ASSISTANT_MODES:
+            self.assistant_mode = "Speaking"
 
         if self.speech_language not in SUPPORTED_SPEECH_LANGUAGES:
             self.speech_language = "es-419"
