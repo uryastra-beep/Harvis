@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 from array import array
+from collections import deque
 from collections.abc import Callable
 from typing import Any
 
@@ -16,6 +17,7 @@ OUTPUT_SAMPLE_RATE = 24000
 AUDIO_CHANNELS = 1
 INPUT_BLOCK_FRAMES = 800
 INPUT_QUEUE_LIMIT = 8
+TEXT_QUEUE_LIMIT = 12
 SPECTRUM_BINS = 42
 SPECTRUM_ANALYSIS_SAMPLES = 512
 
@@ -32,13 +34,14 @@ class GeminiLiveError(RuntimeError):
 
 
 class GeminiLiveVoice:
-    """Stream microphone audio to Gemini Live and play native audio responses."""
+    """Stream voice or silent text commands through Gemini Live."""
 
     def __init__(
         self,
         *,
         language_tag: str = "es-419",
         voice_volume: int = 70,
+        silent_mode: bool = False,
         execute_tool: ToolExecutor,
         on_input_transcript: TextCallback | None = None,
         on_output_transcript: TextCallback | None = None,
@@ -50,6 +53,7 @@ class GeminiLiveVoice:
     ) -> None:
         self._language_tag = language_tag
         self._voice_volume = max(0, min(100, int(voice_volume)))
+        self._silent_mode = bool(silent_mode)
         self._execute_tool = execute_tool
         self._on_input_transcript = on_input_transcript
         self._on_output_transcript = on_output_transcript
@@ -63,9 +67,12 @@ class GeminiLiveVoice:
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._input_queue: asyncio.Queue[bytes] | None = None
+        self._text_queue: asyncio.Queue[str] | None = None
+        self._pending_text_commands: deque[str] = deque(maxlen=TEXT_QUEUE_LIMIT)
         self._input_stream: Any | None = None
         self._output_stream: Any | None = None
         self._sender_task: asyncio.Task | None = None
+        self._text_sender_task: asyncio.Task | None = None
         self._receiver_task: asyncio.Task | None = None
         self._mute_input_until = 0.0
         self._state_lock = threading.Lock()
@@ -73,6 +80,11 @@ class GeminiLiveVoice:
     @property
     def language_tag(self) -> str:
         return self._language_tag
+
+    @property
+    def silent_mode(self) -> bool:
+        with self._state_lock:
+            return self._silent_mode
 
     @property
     def is_running(self) -> bool:
@@ -121,6 +133,10 @@ class GeminiLiveVoice:
         with self._state_lock:
             self._voice_volume = max(0, min(100, int(volume)))
 
+    def set_silent_mode(self, enabled: bool) -> None:
+        with self._state_lock:
+            self._silent_mode = bool(enabled)
+
     def set_language(self, language_tag: str) -> None:
         if language_tag == self._language_tag:
             return
@@ -133,6 +149,26 @@ class GeminiLiveVoice:
 
         if was_running and not self.is_running:
             self.start()
+
+    def send_text(self, text: str) -> bool:
+        """Queue a text command for the active Gemini Live session."""
+
+        value = " ".join(str(text).split()).strip()
+        if not value:
+            return False
+
+        loop = self._loop
+        text_queue = self._text_queue
+        if loop is not None and loop.is_running() and text_queue is not None:
+            try:
+                loop.call_soon_threadsafe(self._queue_text_command, value)
+                return True
+            except RuntimeError:
+                pass
+
+        with self._state_lock:
+            self._pending_text_commands.append(value)
+        return True
 
     def _thread_main(self) -> None:
         try:
@@ -171,24 +207,29 @@ class GeminiLiveVoice:
 
         self._loop = asyncio.get_running_loop()
         self._input_queue = asyncio.Queue(maxsize=INPUT_QUEUE_LIMIT)
+        self._text_queue = asyncio.Queue(maxsize=TEXT_QUEUE_LIMIT)
+        self._drain_pending_text_commands()
+
         input_stream = None
         output_stream = None
+        silent_session = self.silent_mode
 
         try:
-            input_stream = sd.RawInputStream(
-                samplerate=INPUT_SAMPLE_RATE,
-                blocksize=INPUT_BLOCK_FRAMES,
-                channels=AUDIO_CHANNELS,
-                dtype="int16",
-                callback=self._audio_input_callback,
-            )
-            output_stream = sd.RawOutputStream(
-                samplerate=OUTPUT_SAMPLE_RATE,
-                channels=AUDIO_CHANNELS,
-                dtype="int16",
-            )
-            self._input_stream = input_stream
-            self._output_stream = output_stream
+            if not silent_session:
+                input_stream = sd.RawInputStream(
+                    samplerate=INPUT_SAMPLE_RATE,
+                    blocksize=INPUT_BLOCK_FRAMES,
+                    channels=AUDIO_CHANNELS,
+                    dtype="int16",
+                    callback=self._audio_input_callback,
+                )
+                output_stream = sd.RawOutputStream(
+                    samplerate=OUTPUT_SAMPLE_RATE,
+                    channels=AUDIO_CHANNELS,
+                    dtype="int16",
+                )
+                self._input_stream = input_stream
+                self._output_stream = output_stream
 
             client = genai.Client(api_key=api_key)
             config = {
@@ -215,18 +256,28 @@ class GeminiLiveVoice:
                 model=MODEL_NAME,
                 config=config,
             ) as session:
-                input_stream.start()
-                output_stream.start()
+                if input_stream is not None:
+                    input_stream.start()
+                if output_stream is not None:
+                    output_stream.start()
 
-                sender = asyncio.create_task(
-                    self._send_microphone_audio(session, types),
-                    name="HarvisGeminiAudioSender",
+                sender = None
+                if not silent_session:
+                    sender = asyncio.create_task(
+                        self._send_microphone_audio(session, types),
+                        name="HarvisGeminiAudioSender",
+                    )
+
+                text_sender = asyncio.create_task(
+                    self._send_text_commands(session),
+                    name="HarvisGeminiTextSender",
                 )
                 receiver = asyncio.create_task(
                     self._receive_live_messages(session, types, output_stream),
                     name="HarvisGeminiReceiver",
                 )
                 self._sender_task = sender
+                self._text_sender_task = text_sender
                 self._receiver_task = receiver
 
                 self._notify_status("Gemini Live ready")
@@ -236,11 +287,18 @@ class GeminiLiveVoice:
 
                 try:
                     while not self._stop_event.is_set():
-                        if sender.done():
+                        if sender is not None and sender.done():
                             await sender
                             if not self._stop_event.is_set():
                                 raise GeminiLiveError(
                                     "Gemini Live microphone sender stopped unexpectedly."
+                                )
+
+                        if text_sender.done():
+                            await text_sender
+                            if not self._stop_event.is_set():
+                                raise GeminiLiveError(
+                                    "Gemini Live text sender stopped unexpectedly."
                                 )
 
                         if receiver.done():
@@ -252,10 +310,12 @@ class GeminiLiveVoice:
 
                         await asyncio.sleep(0.05)
                 finally:
-                    sender.cancel()
-                    receiver.cancel()
-                    await asyncio.gather(sender, receiver, return_exceptions=True)
+                    tasks = [task for task in (sender, text_sender, receiver) if task is not None]
+                    for task in tasks:
+                        task.cancel()
+                    await asyncio.gather(*tasks, return_exceptions=True)
                     self._sender_task = None
+                    self._text_sender_task = None
                     self._receiver_task = None
         finally:
             self._emit_silence()
@@ -272,9 +332,23 @@ class GeminiLiveVoice:
             self._input_stream = None
             self._output_stream = None
             self._input_queue = None
+            self._text_queue = None
             self._sender_task = None
+            self._text_sender_task = None
             self._receiver_task = None
             self._loop = None
+
+    def _drain_pending_text_commands(self) -> None:
+        text_queue = self._text_queue
+        if text_queue is None:
+            return
+
+        with self._state_lock:
+            pending = list(self._pending_text_commands)
+            self._pending_text_commands.clear()
+
+        for value in pending:
+            self._queue_text_command(value)
 
     def _abort_audio_streams(self) -> None:
         for stream in (self._input_stream, self._output_stream):
@@ -286,12 +360,16 @@ class GeminiLiveVoice:
                 pass
 
     def _cancel_runtime_tasks(self) -> None:
-        for task in (self._sender_task, self._receiver_task):
+        for task in (
+            self._sender_task,
+            self._text_sender_task,
+            self._receiver_task,
+        ):
             if task is not None and not task.done():
                 task.cancel()
 
     def _audio_input_callback(self, indata, frames, time_info, status) -> None:
-        if self._stop_event.is_set():
+        if self._stop_event.is_set() or self.silent_mode:
             return
 
         if status:
@@ -324,6 +402,24 @@ class GeminiLiveVoice:
         except asyncio.QueueFull:
             pass
 
+    def _queue_text_command(self, text: str) -> None:
+        text_queue = self._text_queue
+        if text_queue is None:
+            with self._state_lock:
+                self._pending_text_commands.append(text)
+            return
+
+        if text_queue.full():
+            try:
+                text_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                pass
+
+        try:
+            text_queue.put_nowait(text)
+        except asyncio.QueueFull:
+            pass
+
     async def _send_microphone_audio(self, session, types) -> None:
         audio_queue = self._input_queue
         if audio_queue is None:
@@ -341,6 +437,19 @@ class GeminiLiveVoice:
                     mime_type=f"audio/pcm;rate={INPUT_SAMPLE_RATE}",
                 )
             )
+
+    async def _send_text_commands(self, session) -> None:
+        text_queue = self._text_queue
+        if text_queue is None:
+            return
+
+        while not self._stop_event.is_set():
+            try:
+                text = await asyncio.wait_for(text_queue.get(), timeout=0.20)
+            except TimeoutError:
+                continue
+
+            await session.send_realtime_input(text=text)
 
     async def _receive_live_messages(self, session, types, output_stream) -> None:
         while not self._stop_event.is_set():
@@ -424,6 +533,11 @@ class GeminiLiveVoice:
             )
 
     async def _play_audio(self, output_stream, audio_data: bytes) -> None:
+        if self.silent_mode or output_stream is None:
+            self._emit_silence()
+            await asyncio.sleep(0)
+            return
+
         self._mute_input_until = time.monotonic() + 0.35
         level, spectrum = self._analyze_pcm16(audio_data)
         self._emit_audio_analysis(level, spectrum)
@@ -566,11 +680,18 @@ class GeminiLiveVoice:
                 "Understand Spanish too, and follow the user's language when they explicitly switch."
             )
 
+        mode_instruction = (
+            "Silent mode is active. Commands may arrive as typed text and should be treated as directly addressed "
+            "to Harvis. Keep replies especially short because they are displayed in a compact popup."
+            if self.silent_mode
+            else "Speaking mode is active. Commands normally arrive by voice."
+        )
+
         return (
             "You are Harvis, a concise desktop voice assistant. "
             "Only respond or use computer-control tools when the user clearly addresses you "
-            "as Harvis or Jarvis. "
-            f"{language_instruction} "
+            "as Harvis or Jarvis, except typed commands sent through Silent mode, which are already addressed to you. "
+            f"{language_instruction} {mode_instruction} "
             "Keep spoken responses short unless the user asks for detail. "
             "Use tools for computer actions instead of claiming you performed an action yourself. "
             "Never claim a computer action succeeded until the tool response confirms it."
