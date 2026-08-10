@@ -145,7 +145,8 @@ class HarvisSettingsWindow(SettingsWindow):
         self._refresh_gemini_api_key_status()
 
         watermark_note = QLabel(
-            "When AI watermark is On, every text entry Harvis types starts with #G6m2i9 to identify AI-written text."
+            "When AI watermark is On, Harvis prefixes #G6m2i9 only when the user's request clearly asks it to "
+            "author written content. Searches, URLs, navigation, and browser-field entry stay unmarked."
         )
         watermark_note.setObjectName("mutedLabel")
         watermark_note.setWordWrap(True)
