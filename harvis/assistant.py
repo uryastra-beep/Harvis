@@ -61,10 +61,10 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             f"{super()._system_instruction()} "
             "You can operate the desktop through approved tools. Prefer direct local tools for "
             "opening applications, closing applications, browser shortcuts, media controls, typing, key presses, "
-            "and scrolling. When the user explicitly tells you 'Jarvis apágate', 'Jarvis apagate', "
-            "'Harvis apágate', or 'Harvis apagate', call shutdown_harvis immediately. shutdown_harvis closes only "
-            "the Harvis application; it must never shut down, restart, sleep, lock, or sign out of the computer. "
-            "Do not call shutdown_harvis when the user is merely discussing or quoting the shutdown phrase. "
+            "and scrolling. When the user explicitly tells Harvis or Jarvis to shut itself down in the user's "
+            "current language, call shutdown_harvis immediately. shutdown_harvis closes only the Harvis "
+            "application; it must never shut down, restart, sleep, lock, or sign out of the computer. Do not call "
+            "shutdown_harvis when the user is merely discussing, quoting, or testing the wording of that command. "
             "When the user asks for a sequence that alternates literal text and Enter, such as "
             "'type hello, Enter, hello, Enter, hello', use type_lines once with the exact requested text lines in "
             "order. Do not split that pattern into several type_text and press_key calls. When the user asks to "
@@ -274,8 +274,8 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
                 "name": "shutdown_harvis",
                 "description": (
                     "Close the Harvis application itself. Use only when the user directly tells Harvis or Jarvis "
-                    "to shut itself down, including the Spanish command 'Jarvis apágate' or 'Jarvis apagate'. "
-                    "This must never shut down, restart, sleep, lock, or sign out of the computer."
+                    "to shut itself down in the user's current language. This must never shut down, restart, sleep, "
+                    "lock, or sign out of the computer."
                 ),
                 "parameters": {
                     "type": "object",
