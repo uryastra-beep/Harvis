@@ -20,6 +20,7 @@ from harvis.actions.keyboard_control import press_key, type_lines, type_text
 from harvis.actions.mouse_control import scroll_view
 from harvis.actions.visual_control import move_pointer, vision_click
 from harvis.actions.system import SystemActionError
+from harvis.ai_watermark import should_watermark_ai_authored_text
 from harvis.config import HarvisSettings
 from harvis.core.intents import Intent, IntentType
 from harvis.core.router import IntentRouter
@@ -69,9 +70,10 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             "order. Do not split that pattern into several type_text and press_key calls. When the user asks to "
             "press Enter by itself, use press_key with key='enter'. Never encode a requested keyboard key press as "
             "text such as \\n, \\r, or another escape sequence. Use type_text only for literal content the user "
-            "wants written. After pressing Enter, do not add a leading newline to the next type_text call unless "
-            "the user explicitly requested an empty line. If the user explicitly asks for Enter more than once, "
-            "use the count parameter in one press_key call. "
+            "wants written. Harvis applies its configured AI-authorship watermark locally when appropriate; never "
+            "insert or remove the #G6m2i9 marker yourself. After pressing Enter, do not add a leading newline to "
+            "the next type_text call unless the user explicitly requested an empty line. If the user explicitly "
+            "asks for Enter more than once, use the count parameter in one press_key call. "
             "Use scroll_view when the user asks to scroll up or down, or when scrolling is needed to reveal content "
             "before a later visual action. Use a small number of steps for a little scrolling and more steps only "
             "when the user clearly asks to move farther. "
@@ -238,10 +240,9 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             {
                 "name": "vision_click",
                 "description": (
-                    "Take a screen capture, try Harvis's local visual locator first, then use Gemini vision only "
-                    "when local methods are not confident. Find the requested visible UI element, move the pointer "
-                    "to it, and click it. Use only for explicit visual interaction requests when a direct local "
-                    "control is not more appropriate."
+                    "Take a screen capture and use Harvis's configured visual locator chain to find the requested "
+                    "visible UI element, move the pointer to it, and click it. Use only for explicit visual "
+                    "interaction requests when a direct local control is not more appropriate."
                 ),
                 "parameters": {
                     "type": "object",
@@ -399,6 +400,8 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
 class HarvisAssistant:
     """Coordinate Gemini Live voice, local tools, and application status."""
 
+    _WATERMARK_CONTEXT_WINDOW_SECONDS = 2.0
+
     def __init__(
         self,
         settings: HarvisSettings,
@@ -418,6 +421,9 @@ class HarvisAssistant:
         self._on_status = on_status
         self._on_shutdown_requested = on_shutdown_requested
         self._router = IntentRouter()
+        self._watermark_context_text = ""
+        self._watermark_context_at = 0.0
+        self._watermark_pending = False
 
         self._voice = HarvisGeminiLiveVoice(
             user_name=settings.user_name,
@@ -449,6 +455,7 @@ class HarvisAssistant:
         if self._settings.assistant_mode != "Silent":
             raise SystemActionError("Text commands are available only in Silent mode.")
 
+        self._set_watermark_context(command)
         if not self._voice.send_text(command):
             raise SystemActionError("Harvis could not queue the text command.")
         self._notify_status("Silent command sent")
@@ -485,7 +492,35 @@ class HarvisAssistant:
             status = f"Listening with Gemini Live ({self._voice.language_tag})"
         self._notify_status(status)
 
+    def _set_watermark_context(self, text: str, *, append_fragment: bool = False) -> None:
+        value = " ".join(str(text).split()).strip()
+        if not value:
+            return
+
+        now = time.monotonic()
+        if (
+            append_fragment
+            and self._watermark_context_text
+            and now - self._watermark_context_at <= self._WATERMARK_CONTEXT_WINDOW_SECONDS
+        ):
+            if value.startswith(self._watermark_context_text):
+                combined = value
+            elif self._watermark_context_text.startswith(value):
+                combined = self._watermark_context_text
+            else:
+                combined = f"{self._watermark_context_text} {value}".strip()
+        else:
+            combined = value
+
+        self._watermark_context_text = combined
+        self._watermark_context_at = now
+        self._watermark_pending = should_watermark_ai_authored_text(combined)
+
+    def _should_apply_watermark(self) -> bool:
+        return bool(self._settings.ai_watermark_enabled and self._watermark_pending)
+
     def _handle_input_transcript(self, text: str) -> None:
+        self._set_watermark_context(text, append_fragment=True)
         callback = self._on_heard
         if callback is not None:
             callback(text)
@@ -649,7 +684,14 @@ class HarvisAssistant:
             lines = arguments.get("lines", [])
             if not isinstance(lines, list):
                 raise ValueError("type_lines requires lines as a list.")
-            return type_lines([str(line) for line in lines])
+            apply_watermark = self._should_apply_watermark()
+            result = type_lines(
+                [str(line) for line in lines],
+                apply_watermark=apply_watermark,
+            )
+            if apply_watermark:
+                self._watermark_pending = False
+            return result
 
         if name == "press_key":
             key = str(arguments.get("key", "")).strip()
@@ -660,7 +702,11 @@ class HarvisAssistant:
 
         if name == "type_text":
             text = str(arguments.get("text", ""))
-            return type_text(text)
+            apply_watermark = self._should_apply_watermark()
+            result = type_text(text, apply_watermark=apply_watermark)
+            if apply_watermark:
+                self._watermark_pending = False
+            return result
 
         raise ValueError(f"Unsupported Harvis tool: {name}")
 
