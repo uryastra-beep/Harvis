@@ -47,7 +47,7 @@ def vision_click(
     button: str = "left",
     confirmed: bool = False,
 ) -> dict[str, Any]:
-    """Locate a visible UI target locally first, then use Gemini vision as fallback."""
+    """Prefer Gemini Vision, fall back locally, then retry Gemini once."""
 
     target_text = str(target).strip()
     if not target_text:
@@ -60,6 +60,30 @@ def vision_click(
     preferred_capture = capture_preferred_screen()
     full_capture: ScreenCapture | None = None
 
+    cloud_attempts = 0
+    cloud_errors: list[Exception] = []
+    best_cloud_capture = preferred_capture
+    best_cloud_target: VisionTarget | None = None
+
+    # Gemini Vision is the primary locator whenever it is available and confident.
+    cloud_attempts += 1
+    try:
+        primary_cloud_target = locate_visual_target(preferred_capture, target_text)
+        best_cloud_target = primary_cloud_target
+        if _is_confident_target(primary_cloud_target):
+            return _complete_cloud_click(
+                target_text,
+                normalized_button,
+                confirmed,
+                preferred_capture,
+                primary_cloud_target,
+                local_attempts=0,
+                cloud_attempts=cloud_attempts,
+            )
+    except Exception as exc:
+        cloud_errors.append(exc)
+
+    # If Gemini Vision cannot confidently locate the target, use the local stack.
     local_attempts = 1
     preferred_local = locate_local_target(preferred_capture, target_text)
     best_local_capture = preferred_capture
@@ -87,52 +111,50 @@ def vision_click(
             best_local_capture,
             best_local_target,
             attempts=local_attempts,
-        )
-
-    cloud_attempts = 0
-    cloud_error: Exception | None = None
-    cloud_capture = preferred_capture
-    cloud_target: VisionTarget | None = None
-
-    try:
-        cloud_target = locate_visual_target(preferred_capture, target_text)
-        cloud_attempts += 1
-
-        if not _is_confident_target(cloud_target):
-            if full_capture is None:
-                candidate_full_capture = capture_full_screen()
-                if _capture_geometry(candidate_full_capture) != _capture_geometry(
-                    preferred_capture
-                ):
-                    full_capture = candidate_full_capture
-
-            if full_capture is not None:
-                full_target = locate_visual_target(full_capture, target_text)
-                cloud_attempts += 1
-                if _target_score(full_target) > _target_score(cloud_target):
-                    cloud_capture = full_capture
-                    cloud_target = full_target
-    except Exception as exc:
-        cloud_error = exc
-
-    if cloud_target is not None and _is_confident_target(cloud_target):
-        return _complete_cloud_click(
-            target_text,
-            normalized_button,
-            confirmed,
-            cloud_capture,
-            cloud_target,
-            local_attempts=local_attempts,
             cloud_attempts=cloud_attempts,
         )
+
+    # Local vision also failed. Give Gemini Vision one final chance, preferably
+    # with the full desktop capture when it differs from the preferred display.
+    if full_capture is None:
+        candidate_full_capture = capture_full_screen()
+        if _capture_geometry(candidate_full_capture) != _capture_geometry(
+            preferred_capture
+        ):
+            full_capture = candidate_full_capture
+
+    final_cloud_capture = full_capture or preferred_capture
+    cloud_attempts += 1
+    try:
+        final_cloud_target = locate_visual_target(final_cloud_capture, target_text)
+        if (
+            best_cloud_target is None
+            or _target_score(final_cloud_target) > _target_score(best_cloud_target)
+        ):
+            best_cloud_capture = final_cloud_capture
+            best_cloud_target = final_cloud_target
+
+        if _is_confident_target(final_cloud_target):
+            return _complete_cloud_click(
+                target_text,
+                normalized_button,
+                confirmed,
+                final_cloud_capture,
+                final_cloud_target,
+                local_attempts=local_attempts,
+                cloud_attempts=cloud_attempts,
+            )
+    except Exception as exc:
+        cloud_errors.append(exc)
 
     return _failed_vision_result(
         target_text,
         best_local_target,
         local_attempts=local_attempts,
-        cloud_target=cloud_target,
+        cloud_target=best_cloud_target,
+        cloud_capture=best_cloud_capture,
         cloud_attempts=cloud_attempts,
-        cloud_error=cloud_error,
+        cloud_error=cloud_errors[-1] if cloud_errors else None,
     )
 
 
@@ -144,6 +166,7 @@ def _complete_local_click(
     target: LocalVisionTarget,
     *,
     attempts: int,
+    cloud_attempts: int = 0,
 ) -> dict[str, Any]:
     result: dict[str, Any] = {
         "status": "local_match",
@@ -159,7 +182,10 @@ def _complete_local_click(
         "y": target.y,
         "capture_origin": [capture.origin_x, capture.origin_y],
         "capture_size": [capture.width, capture.height],
-        "attempts": attempts,
+        "attempts": attempts + cloud_attempts,
+        "local_attempts": attempts,
+        "cloud_attempts": cloud_attempts,
+        "local_fallback_used": cloud_attempts > 0,
         "cloud_fallback_used": False,
     }
     if target.diagnostics:
@@ -209,7 +235,8 @@ def _complete_cloud_click(
         "attempts": local_attempts + cloud_attempts,
         "local_attempts": local_attempts,
         "cloud_attempts": cloud_attempts,
-        "cloud_fallback_used": True,
+        "local_fallback_used": local_attempts > 0,
+        "cloud_fallback_used": local_attempts > 0,
     }
 
     if target.sensitive and not confirmed:
@@ -229,6 +256,7 @@ def _failed_vision_result(
     *,
     local_attempts: int,
     cloud_target: VisionTarget | None,
+    cloud_capture: ScreenCapture,
     cloud_attempts: int,
     cloud_error: Exception | None,
 ) -> dict[str, Any]:
@@ -244,7 +272,7 @@ def _failed_vision_result(
         sensitive = cloud_target.sensitive
 
     if cloud_error is not None:
-        status = "local_low_confidence" if local_target.found else "vision_unavailable"
+        status = "vision_unavailable"
     elif best_found:
         status = "low_confidence"
     else:
@@ -255,13 +283,14 @@ def _failed_vision_result(
         "target": target_text,
         "found": best_found,
         "confidence": round(best_confidence, 3),
-        "description": description,
+        "description": "Could not find it.",
         "sensitive": sensitive,
-        "locator": "local+gemini",
+        "locator": "gemini+local+gemini",
         "methods": list(local_target.methods),
         "attempts": local_attempts + cloud_attempts,
         "local_attempts": local_attempts,
         "cloud_attempts": cloud_attempts,
+        "local_fallback_used": True,
         "cloud_fallback_used": True,
     }
 
@@ -274,8 +303,12 @@ def _failed_vision_result(
     if cloud_target is not None:
         result["model"] = cloud_target.model
         result["cloud_confidence"] = round(cloud_target.confidence, 3)
+        result["cloud_capture_origin"] = [
+            cloud_capture.origin_x,
+            cloud_capture.origin_y,
+        ]
     if cloud_error is not None:
-        result["cloud_error"] = str(cloud_error)
+        result["cloud_error"] = "Gemini Vision unavailable."
 
     return result
 
