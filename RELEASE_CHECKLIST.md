@@ -38,6 +38,10 @@ python -m pytest
 - [ ] Confirm the configured voice volume is respected.
 - [ ] Confirm the preferred language setting is respected.
 - [ ] Confirm the Sphere visualizer reacts to real Gemini audio.
+- [ ] Ask Harvis a normal question and confirm the Sphere smoothly morphs into the rotating loading indicator while the request is being processed.
+- [ ] Confirm the normal audio-reactive Sphere returns when Harvis begins responding.
+- [ ] Ask Harvis to visually find a harmless target and confirm the loading indicator is active while the locator is searching.
+- [ ] Confirm the Sphere returns after the visual search succeeds, fails safely, or requests confirmation.
 - [ ] Short-click the Sphere and confirm microphone forwarding becomes muted.
 - [ ] Confirm the muted Sphere shows the diagonal indicator.
 - [ ] Speak while muted and confirm Harvis does not receive the microphone audio.
