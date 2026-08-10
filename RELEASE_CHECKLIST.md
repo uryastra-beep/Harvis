@@ -38,6 +38,11 @@ python -m pytest
 - [ ] Confirm the configured voice volume is respected.
 - [ ] Confirm the preferred language setting is respected.
 - [ ] Confirm the Sphere visualizer reacts to real Gemini audio.
+- [ ] Short-click the Sphere and confirm microphone forwarding becomes muted.
+- [ ] Confirm the muted Sphere shows the diagonal indicator.
+- [ ] Speak while muted and confirm Harvis does not receive the microphone audio.
+- [ ] Short-click the Sphere again and confirm microphone forwarding resumes immediately without reconnecting Gemini Live.
+- [ ] Drag the Sphere and confirm moving it does not toggle the microphone state.
 - [ ] Confirm the Bars visualizer reacts to real Gemini audio.
 - [ ] Confirm visualizer previews still work independently.
 
