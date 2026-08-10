@@ -41,6 +41,7 @@ def test_literal_newline_escape_inside_regular_text_is_preserved() -> None:
 
 def test_type_text_keeps_escaped_newline_literal_on_windows(monkeypatch) -> None:
     sent: list[str] = []
+    keyboard_control.set_ai_watermark_enabled(False)
 
     monkeypatch.setattr(keyboard_control.platform, "system", lambda: "Windows")
     monkeypatch.setattr(
@@ -53,6 +54,29 @@ def test_type_text_keeps_escaped_newline_literal_on_windows(monkeypatch) -> None
 
     assert sent == [r"\n"]
     assert result == {"status": "completed", "characters": 2}
+
+
+def test_ai_watermark_prefixes_typed_text_once(monkeypatch) -> None:
+    sent: list[str] = []
+    keyboard_control.set_ai_watermark_enabled(True)
+
+    monkeypatch.setattr(keyboard_control.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(
+        keyboard_control,
+        "_windows_type_unicode",
+        lambda text: sent.append(text),
+    )
+
+    try:
+        keyboard_control.type_text("Hello from Harvis")
+        keyboard_control.type_text("#G6m2i9 Already marked")
+    finally:
+        keyboard_control.set_ai_watermark_enabled(False)
+
+    assert sent == [
+        "#G6m2i9 Hello from Harvis",
+        "#G6m2i9 Already marked",
+    ]
 
 
 def test_press_key_sends_one_enter_on_windows(monkeypatch) -> None:
@@ -93,11 +117,13 @@ def test_press_key_rejects_unknown_key() -> None:
 
 def test_type_lines_keeps_repeated_text_sequence_exact(monkeypatch) -> None:
     calls: list[tuple[str, str | int]] = []
+    keyboard_control.set_ai_watermark_enabled(False)
 
     monkeypatch.setattr(
         keyboard_control,
         "type_text",
-        lambda text: calls.append(("text", text)) or {"status": "completed"},
+        lambda text, apply_watermark=True: calls.append(("text", text))
+        or {"status": "completed"},
     )
     monkeypatch.setattr(
         keyboard_control,
@@ -122,6 +148,33 @@ def test_type_lines_keeps_repeated_text_sequence_exact(monkeypatch) -> None:
         "characters": 16,
         "enters": 3,
     }
+
+
+def test_type_lines_applies_watermark_only_to_first_nonempty_line(monkeypatch) -> None:
+    calls: list[tuple[str, bool]] = []
+    keyboard_control.set_ai_watermark_enabled(True)
+
+    monkeypatch.setattr(
+        keyboard_control,
+        "type_text",
+        lambda text, apply_watermark=True: calls.append((text, apply_watermark))
+        or {"status": "completed"},
+    )
+    monkeypatch.setattr(
+        keyboard_control,
+        "press_key",
+        lambda key, count=1: {"status": "completed"},
+    )
+
+    try:
+        keyboard_control.type_lines(["", "first", "second"])
+    finally:
+        keyboard_control.set_ai_watermark_enabled(False)
+
+    assert calls == [
+        ("first", True),
+        ("second", False),
+    ]
 
 
 def test_type_lines_rejects_embedded_newline() -> None:
