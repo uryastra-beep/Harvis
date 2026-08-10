@@ -46,8 +46,8 @@ class SilentCommandPopup(QWidget):
         shell.setStyleSheet(
             f"""
             QWidget#silentShell {{
-                background: rgba(0, 7, 43, 238);
-                border: 1px solid {TERTIARY};
+                background: rgba(0, 7, 43, 184);
+                border: 1px solid rgba(83, 238, 252, 170);
                 border-radius: 18px;
             }}
             QLabel {{
@@ -69,26 +69,27 @@ class SilentCommandPopup(QWidget):
             }}
             QLineEdit {{
                 color: {TEXT_PRIMARY};
-                background: rgba(255, 255, 255, 14);
-                border: 1px solid rgba(133, 177, 255, 105);
+                background: rgba(255, 255, 255, 24);
+                border: 1px solid rgba(133, 177, 255, 96);
                 border-radius: 11px;
                 padding: 9px 11px;
                 selection-background-color: {SECONDARY};
                 selection-color: {PRIMARY};
             }}
             QLineEdit:focus {{
-                border: 1px solid {TERTIARY};
+                background: rgba(255, 255, 255, 34);
+                border: 1px solid rgba(83, 238, 252, 190);
             }}
             QPushButton {{
                 color: {PRIMARY};
-                background: {SECONDARY};
+                background: rgba(133, 177, 255, 220);
                 border: none;
                 border-radius: 11px;
                 padding: 9px 16px;
                 font-weight: 700;
             }}
             QPushButton:hover {{
-                background: {TERTIARY};
+                background: rgba(83, 238, 252, 230);
             }}
             """
         )
@@ -136,7 +137,7 @@ class SilentCommandPopup(QWidget):
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(36)
         shadow.setOffset(0, 10)
-        shadow.setColor(QColor(0, 0, 0, 150))
+        shadow.setColor(QColor(0, 0, 0, 125))
         self.setGraphicsEffect(shadow)
 
     def _submit_command(self) -> None:
@@ -166,8 +167,26 @@ class SilentCommandPopup(QWidget):
         self._response_text = combined[-700:]
         self.response_label.setText(self._response_text)
 
-    def set_status(self, text: str) -> None:
+    @staticmethod
+    def _safe_status_text(text: str) -> str:
         value = " ".join(str(text).split()).strip()
+        if not value:
+            return ""
+
+        lowered = value.casefold()
+        if lowered.startswith("looking for on-screen target:"):
+            return "Searching..."
+        if lowered.startswith("clicked on-screen target:"):
+            return "Done."
+        if lowered.startswith("could not confidently click:"):
+            return "Could not find it."
+        if lowered.startswith("confirmation required before clicking:"):
+            return "Confirmation required."
+
+        return value
+
+    def set_status(self, text: str) -> None:
+        value = self._safe_status_text(text)
         if value and not self._response_text:
             self.response_label.setText(value)
 
