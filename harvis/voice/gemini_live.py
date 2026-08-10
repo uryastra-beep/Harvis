@@ -14,8 +14,8 @@ MODEL_NAME = "gemini-3.1-flash-live-preview"
 INPUT_SAMPLE_RATE = 16000
 OUTPUT_SAMPLE_RATE = 24000
 AUDIO_CHANNELS = 1
-INPUT_BLOCK_FRAMES = 1600
-INPUT_QUEUE_LIMIT = 20
+INPUT_BLOCK_FRAMES = 800
+INPUT_QUEUE_LIMIT = 8
 SPECTRUM_BINS = 42
 SPECTRUM_ANALYSIS_SAMPLES = 512
 
@@ -63,6 +63,10 @@ class GeminiLiveVoice:
         self._thread: threading.Thread | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._input_queue: asyncio.Queue[bytes] | None = None
+        self._input_stream: Any | None = None
+        self._output_stream: Any | None = None
+        self._sender_task: asyncio.Task | None = None
+        self._receiver_task: asyncio.Task | None = None
         self._mute_input_until = 0.0
         self._state_lock = threading.Lock()
 
@@ -90,20 +94,28 @@ class GeminiLiveVoice:
     def stop(self) -> None:
         self._stop_event.set()
         self._emit_silence()
+        self._abort_audio_streams()
 
         loop = self._loop
         if loop is not None and loop.is_running():
-            loop.call_soon_threadsafe(lambda: None)
+            try:
+                loop.call_soon_threadsafe(self._cancel_runtime_tasks)
+            except RuntimeError:
+                pass
 
         thread = self._thread
-        if (
-            thread is not None
-            and thread is not threading.current_thread()
-            and thread.is_alive()
-        ):
+        if thread is None or thread is threading.current_thread():
+            return
+
+        if thread.is_alive():
             thread.join(timeout=3.0)
 
-        self._thread = None
+        if thread.is_alive():
+            self._notify_status("Gemini Live is still stopping")
+            return
+
+        if self._thread is thread:
+            self._thread = None
 
     def set_volume(self, volume: int) -> None:
         with self._state_lock:
@@ -119,7 +131,7 @@ class GeminiLiveVoice:
 
         self._language_tag = language_tag
 
-        if was_running:
+        if was_running and not self.is_running:
             self.start()
 
     def _thread_main(self) -> None:
@@ -128,6 +140,10 @@ class GeminiLiveVoice:
         except Exception as exc:
             self._emit_silence()
             self._notify_error(exc)
+        finally:
+            current_thread = threading.current_thread()
+            if self._thread is current_thread:
+                self._thread = None
 
     async def _run(self) -> None:
         api_key = os.getenv("GEMINI_API_KEY", "").strip()
@@ -155,53 +171,52 @@ class GeminiLiveVoice:
 
         self._loop = asyncio.get_running_loop()
         self._input_queue = asyncio.Queue(maxsize=INPUT_QUEUE_LIMIT)
-
-        input_stream = sd.RawInputStream(
-            samplerate=INPUT_SAMPLE_RATE,
-            blocksize=INPUT_BLOCK_FRAMES,
-            channels=AUDIO_CHANNELS,
-            dtype="int16",
-            callback=self._audio_input_callback,
-        )
-        output_stream = sd.RawOutputStream(
-            samplerate=OUTPUT_SAMPLE_RATE,
-            channels=AUDIO_CHANNELS,
-            dtype="int16",
-        )
-
-        client = genai.Client(api_key=api_key)
-        config = {
-            "response_modalities": ["AUDIO"],
-            "input_audio_transcription": {},
-            "output_audio_transcription": {},
-            "speech_config": {
-                "voice_config": {
-                    "prebuilt_voice_config": {
-                        "voice_name": "Iapetus",
-                    }
-                }
-            },
-            "thinking_config": {
-                "thinking_level": "minimal",
-            },
-            "system_instruction": self._system_instruction(),
-            "tools": self._tool_declarations(),
-        }
-
-        self._notify_status("Connecting to Gemini Live")
+        input_stream = None
+        output_stream = None
 
         try:
+            input_stream = sd.RawInputStream(
+                samplerate=INPUT_SAMPLE_RATE,
+                blocksize=INPUT_BLOCK_FRAMES,
+                channels=AUDIO_CHANNELS,
+                dtype="int16",
+                callback=self._audio_input_callback,
+            )
+            output_stream = sd.RawOutputStream(
+                samplerate=OUTPUT_SAMPLE_RATE,
+                channels=AUDIO_CHANNELS,
+                dtype="int16",
+            )
+            self._input_stream = input_stream
+            self._output_stream = output_stream
+
+            client = genai.Client(api_key=api_key)
+            config = {
+                "response_modalities": ["AUDIO"],
+                "input_audio_transcription": {},
+                "output_audio_transcription": {},
+                "speech_config": {
+                    "voice_config": {
+                        "prebuilt_voice_config": {
+                            "voice_name": "Iapetus",
+                        }
+                    }
+                },
+                "thinking_config": {
+                    "thinking_level": "minimal",
+                },
+                "system_instruction": self._system_instruction(),
+                "tools": self._tool_declarations(),
+            }
+
+            self._notify_status("Connecting to Gemini Live")
+
             async with client.aio.live.connect(
                 model=MODEL_NAME,
                 config=config,
             ) as session:
                 input_stream.start()
                 output_stream.start()
-                self._notify_status("Gemini Live connected")
-
-                callback = self._on_ready
-                if callback is not None:
-                    callback()
 
                 sender = asyncio.create_task(
                     self._send_microphone_audio(session, types),
@@ -211,6 +226,13 @@ class GeminiLiveVoice:
                     self._receive_live_messages(session, types, output_stream),
                     name="HarvisGeminiReceiver",
                 )
+                self._sender_task = sender
+                self._receiver_task = receiver
+
+                self._notify_status("Gemini Live ready")
+                callback = self._on_ready
+                if callback is not None:
+                    callback()
 
                 try:
                     while not self._stop_event.is_set():
@@ -233,20 +255,40 @@ class GeminiLiveVoice:
                     sender.cancel()
                     receiver.cancel()
                     await asyncio.gather(sender, receiver, return_exceptions=True)
+                    self._sender_task = None
+                    self._receiver_task = None
         finally:
             self._emit_silence()
-            try:
-                input_stream.stop()
-            except Exception:
-                pass
-            try:
-                output_stream.stop()
-            except Exception:
-                pass
-            input_stream.close()
-            output_stream.close()
+            self._abort_audio_streams()
+
+            for stream in (input_stream, output_stream):
+                if stream is None:
+                    continue
+                try:
+                    stream.close()
+                except Exception:
+                    pass
+
+            self._input_stream = None
+            self._output_stream = None
             self._input_queue = None
+            self._sender_task = None
+            self._receiver_task = None
             self._loop = None
+
+    def _abort_audio_streams(self) -> None:
+        for stream in (self._input_stream, self._output_stream):
+            if stream is None:
+                continue
+            try:
+                stream.abort()
+            except Exception:
+                pass
+
+    def _cancel_runtime_tasks(self) -> None:
+        for task in (self._sender_task, self._receiver_task):
+            if task is not None and not task.done():
+                task.cancel()
 
     def _audio_input_callback(self, indata, frames, time_info, status) -> None:
         if self._stop_event.is_set():
@@ -289,7 +331,7 @@ class GeminiLiveVoice:
 
         while not self._stop_event.is_set():
             try:
-                chunk = await asyncio.wait_for(audio_queue.get(), timeout=0.25)
+                chunk = await asyncio.wait_for(audio_queue.get(), timeout=0.20)
             except TimeoutError:
                 continue
 
@@ -386,8 +428,9 @@ class GeminiLiveVoice:
         level, spectrum = self._analyze_pcm16(audio_data)
         self._emit_audio_analysis(level, spectrum)
         scaled_audio = self._scale_pcm16(audio_data)
-        await asyncio.to_thread(output_stream.write, scaled_audio)
+        output_stream.write(scaled_audio)
         self._mute_input_until = time.monotonic() + 0.25
+        await asyncio.sleep(0)
 
     @staticmethod
     def _analyze_pcm16(audio_data: bytes) -> tuple[float, list[float]]:
