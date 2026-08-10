@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QPointF, Qt
-from PySide6.QtGui import QColor, QMouseEvent, QPainter
+from PySide6.QtCore import QPoint, QPointF, Qt, Signal
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
+from harvis.ui.theme import TERTIARY
 from harvis.ui.visualizer_window import SphereVisualizer
 
 
@@ -22,6 +23,7 @@ class TransparentSphereVisualizer(SphereVisualizer):
             demo_mode=demo_mode,
             parent=parent,
         )
+        self._microphone_muted = False
         self.setMinimumSize(1, 1)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -44,10 +46,30 @@ class TransparentSphereVisualizer(SphereVisualizer):
         self._draw_particle_sphere(painter, center, radius)
         self._draw_outer_ring(painter, center, radius)
 
+        if self._microphone_muted:
+            span = radius * 0.78
+            painter.setPen(
+                QPen(
+                    QColor(TERTIARY),
+                    5.0,
+                    Qt.PenStyle.SolidLine,
+                    Qt.PenCapStyle.RoundCap,
+                )
+            )
+            painter.drawLine(
+                QPointF(center.x() - span, center.y() - span),
+                QPointF(center.x() + span, center.y() + span),
+            )
+
+    def set_microphone_muted(self, muted: bool) -> None:
+        self._microphone_muted = bool(muted)
+        self.update()
+
 
 class OrbPopupWindow(QWidget):
     """Small always-on-top transparent live sphere popup."""
 
+    clicked = Signal()
     DEFAULT_SIZE = 196
 
     def __init__(
@@ -79,6 +101,8 @@ class OrbPopupWindow(QWidget):
         self.visualizer.setGeometry(self.rect())
 
         self._drag_offset: QPoint | None = None
+        self._press_global_position: QPoint | None = None
+        self._dragging = False
         self._user_positioned = False
 
     def showEvent(self, event) -> None:
@@ -102,7 +126,10 @@ class OrbPopupWindow(QWidget):
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
-            self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            global_position = event.globalPosition().toPoint()
+            self._drag_offset = global_position - self.frameGeometry().topLeft()
+            self._press_global_position = global_position
+            self._dragging = False
             event.accept()
             return
         super().mousePressEvent(event)
@@ -110,18 +137,30 @@ class OrbPopupWindow(QWidget):
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if (
             self._drag_offset is not None
+            and self._press_global_position is not None
             and event.buttons() & Qt.MouseButton.LeftButton
         ):
-            self.move(event.globalPosition().toPoint() - self._drag_offset)
-            self._user_positioned = True
+            global_position = event.globalPosition().toPoint()
+            distance = (global_position - self._press_global_position).manhattanLength()
+            if distance >= QApplication.startDragDistance():
+                self._dragging = True
+
+            if self._dragging:
+                self.move(global_position - self._drag_offset)
+                self._user_positioned = True
             event.accept()
             return
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
+            was_click = self._drag_offset is not None and not self._dragging
             self._drag_offset = None
+            self._press_global_position = None
+            self._dragging = False
             event.accept()
+            if was_click:
+                self.clicked.emit()
             return
         super().mouseReleaseEvent(event)
 
@@ -136,3 +175,6 @@ class OrbPopupWindow(QWidget):
 
     def set_spectrum(self, values) -> None:
         return
+
+    def set_microphone_muted(self, muted: bool) -> None:
+        self.visualizer.set_microphone_muted(muted)
