@@ -1,10 +1,12 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, QPointF, Qt, Signal
+import math
+
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QPen
 from PySide6.QtWidgets import QApplication, QWidget
 
-from harvis.ui.theme import TERTIARY
+from harvis.ui.theme import SECONDARY, TERTIARY
 from harvis.ui.visualizer_window import SphereVisualizer
 
 
@@ -24,11 +26,24 @@ class TransparentSphereVisualizer(SphereVisualizer):
             parent=parent,
         )
         self._microphone_muted = False
+        self._loading = False
+        self._loading_mix = 0.0
         self.setMinimumSize(1, 1)
         self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAutoFillBackground(False)
+
+    @property
+    def loading(self) -> bool:
+        return self._loading
+
+    def _on_frame(self) -> None:
+        target = 1.0 if self._loading else 0.0
+        smoothing = 0.19 if target > self._loading_mix else 0.14
+        self._loading_mix += (target - self._loading_mix) * smoothing
+        if abs(target - self._loading_mix) < 0.002:
+            self._loading_mix = target
 
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
@@ -42,9 +57,21 @@ class TransparentSphereVisualizer(SphereVisualizer):
         center = QPointF(width * 0.5, height * 0.5)
         radius = min(width, height) * 0.27
 
-        self._draw_glow(painter, center, radius)
-        self._draw_particle_sphere(painter, center, radius)
-        self._draw_outer_ring(painter, center, radius)
+        sphere_opacity = max(0.0, 1.0 - self._loading_mix)
+        if sphere_opacity > 0.01:
+            painter.save()
+            painter.setOpacity(sphere_opacity)
+            sphere_radius = radius * (1.0 - self._loading_mix * 0.18)
+            self._draw_glow(painter, center, sphere_radius)
+            self._draw_particle_sphere(painter, center, sphere_radius)
+            self._draw_outer_ring(painter, center, sphere_radius)
+            painter.restore()
+
+        if self._loading_mix > 0.01:
+            painter.save()
+            painter.setOpacity(self._loading_mix)
+            self._draw_loading_indicator(painter, center, radius)
+            painter.restore()
 
         if self._microphone_muted:
             span = radius * 0.78
@@ -61,8 +88,66 @@ class TransparentSphereVisualizer(SphereVisualizer):
                 QPointF(center.x() + span, center.y() + span),
             )
 
+    def _draw_loading_indicator(
+        self,
+        painter: QPainter,
+        center: QPointF,
+        radius: float,
+    ) -> None:
+        spinner_radius = radius * 0.92
+        track_color = QColor(SECONDARY)
+        track_color.setAlpha(42)
+        painter.setPen(
+            QPen(
+                track_color,
+                3.0,
+                Qt.PenStyle.SolidLine,
+                Qt.PenCapStyle.RoundCap,
+            )
+        )
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(center, spinner_radius, spinner_radius)
+
+        rotation_degrees = (self.phase * 108.0) % 360.0
+        segments = (
+            (SECONDARY, 7.0, spinner_radius, 132.0, 0.0),
+            (TERTIARY, 5.0, spinner_radius * 0.78, 86.0, 152.0),
+            (SECONDARY, 3.2, spinner_radius * 0.60, 54.0, 264.0),
+        )
+
+        for color_value, width, local_radius, span, offset in segments:
+            color = QColor(color_value)
+            color.setAlpha(235)
+            painter.setPen(
+                QPen(
+                    color,
+                    width,
+                    Qt.PenStyle.SolidLine,
+                    Qt.PenCapStyle.RoundCap,
+                )
+            )
+            rect = QRectF(
+                center.x() - local_radius,
+                center.y() - local_radius,
+                local_radius * 2.0,
+                local_radius * 2.0,
+            )
+            start = int(((rotation_degrees + offset) % 360.0) * 16.0)
+            painter.drawArc(rect, start, int(span * 16.0))
+
+        pulse = 4.4 + 1.2 * (0.5 + 0.5 * math.sin(self.phase * 3.1))
+        core = QColor(TERTIARY)
+        core.setAlpha(230)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(core)
+        painter.drawEllipse(center, pulse, pulse)
+
     def set_microphone_muted(self, muted: bool) -> None:
         self._microphone_muted = bool(muted)
+        self.update()
+
+    def set_loading(self, loading: bool) -> None:
+        self._loading = bool(loading)
         self.update()
 
 
@@ -178,3 +263,6 @@ class OrbPopupWindow(QWidget):
 
     def set_microphone_muted(self, muted: bool) -> None:
         self.visualizer.set_microphone_muted(muted)
+
+    def set_loading(self, loading: bool) -> None:
+        self.visualizer.set_loading(loading)
