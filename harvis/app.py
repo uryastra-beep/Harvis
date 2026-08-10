@@ -21,6 +21,7 @@ from harvis.credentials import (
     save_gemini_api_key,
     sync_gemini_api_key_environment,
 )
+from harvis.single_instance import SingleInstanceCoordinator
 from harvis.ui.orb_popup import OrbPopupWindow
 from harvis.ui.settings_window import LiquidActionButton, SettingsWindow
 from harvis.ui.visualizer_window import VisualizerWindow
@@ -304,6 +305,8 @@ class HarvisSettingsWindow(SettingsWindow):
             self._visualizer_preview.close()
         if self._live_visualizer is not None:
             self._live_visualizer.close()
+        if self._assistant is not None:
+            self._assistant.stop()
         super().closeEvent(event)
 
 
@@ -327,12 +330,32 @@ def _parse_runtime_options() -> tuple[argparse.Namespace, list[str]]:
     return options, [sys.argv[0], *remaining_args]
 
 
+def _activate_window(window) -> None:
+    if window.isMinimized():
+        window.showNormal()
+    else:
+        window.show()
+    window.raise_()
+    window.activateWindow()
+
+
 def main() -> int:
     options, qt_args = _parse_runtime_options()
 
     app = QApplication(qt_args)
     app.setApplicationName("Harvis")
     app.setOrganizationName("Harvis")
+    app.setQuitOnLastWindowClosed(True)
+
+    instance_coordinator = SingleInstanceCoordinator(parent=app)
+    try:
+        if not instance_coordinator.acquire_or_activate_existing():
+            return 0
+    except RuntimeError as exc:
+        print(f"[Harvis] Single-instance startup failed: {exc}", flush=True)
+        return 1
+
+    app.aboutToQuit.connect(instance_coordinator.close)
 
     sync_gemini_api_key_environment()
 
@@ -391,6 +414,10 @@ def main() -> int:
             )
             window.set_assistant(assistant)
             app.aboutToQuit.connect(assistant.stop)
+
+    instance_coordinator.activation_requested.connect(
+        lambda: _activate_window(window)
+    )
 
     window.show()
 
