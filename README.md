@@ -16,6 +16,7 @@ The project currently focuses on Windows while keeping the architecture portable
 - Secure Gemini API key storage from the Settings UI.
 - Single-instance behavior to avoid duplicate Harvis processes.
 - Sphere and Bars audio-reactive visualizers.
+- Click-to-mute microphone control on the live Sphere without disconnecting Gemini Live.
 - Optional AI-authorship watermark for content Harvis writes.
 - Persistent settings with a PySide6 liquid-glass interface.
 
@@ -35,6 +36,8 @@ When the visualizer is enabled:
 
 - `Sphere` opens a small transparent always-on-top orb.
 - `Bars` opens the frequency-bar visualizer.
+
+A short click on the live Sphere toggles microphone forwarding on or off without closing the audio stream or disconnecting the Gemini Live session. When muted, the Sphere displays a diagonal tertiary-color indicator. Dragging the Sphere still moves it and does not toggle the microphone.
 
 ### Silent
 
@@ -141,6 +144,11 @@ The API key is never written to `settings.json` or intended to be committed to t
 Speaking mode
 
 Microphone
+    |
+    +-- Sphere mute gate
+    |       |
+    |       +-- muted --> audio is not forwarded
+    |       +-- active --> audio continues to Gemini Live
     |
     v
 Gemini Live
@@ -281,7 +289,7 @@ Run the test suite with:
 python -m pytest
 ```
 
-The repository includes tests for settings, Gemini Live lifecycle safeguards, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
+The repository includes tests for settings, Gemini Live lifecycle safeguards, microphone mute gating, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
 
 ## Current limitations
 
