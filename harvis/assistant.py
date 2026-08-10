@@ -423,6 +423,7 @@ class HarvisAssistant:
             user_name=settings.user_name,
             language_tag=settings.speech_language,
             voice_volume=settings.voice_volume,
+            silent_mode=settings.assistant_mode == "Silent",
             execute_tool=self._execute_tool,
             on_input_transcript=self._handle_input_transcript,
             on_output_transcript=self._handle_output_transcript,
@@ -434,19 +435,32 @@ class HarvisAssistant:
         )
 
     def start(self) -> None:
-        self._notify_status("Starting Gemini Live voice assistant")
+        self._notify_status("Starting Gemini Live assistant")
         self._voice.start()
 
     def stop(self) -> None:
         self._voice.stop()
-        self._notify_status("Voice assistant stopped")
+        self._notify_status("Assistant stopped")
+
+    def send_text_command(self, text: str) -> None:
+        command = " ".join(str(text).split()).strip()
+        if not command:
+            raise ValueError("Silent mode command cannot be empty.")
+        if self._settings.assistant_mode != "Silent":
+            raise SystemActionError("Text commands are available only in Silent mode.")
+
+        if not self._voice.send_text(command):
+            raise SystemActionError("Harvis could not queue the text command.")
+        self._notify_status("Silent command sent")
 
     def apply_settings(self, settings: HarvisSettings) -> None:
         previous_language = self._settings.speech_language
         previous_user_name = self._settings.user_name
+        previous_mode = self._settings.assistant_mode
         profile_changed = (
             settings.speech_language != previous_language
             or settings.user_name != previous_user_name
+            or settings.assistant_mode != previous_mode
         )
         was_running = self._voice.is_running
 
@@ -454,19 +468,22 @@ class HarvisAssistant:
         self._voice.set_volume(settings.voice_volume)
 
         if profile_changed and was_running:
-            self._notify_status("Restarting Gemini Live for updated personalization")
+            self._notify_status("Restarting Gemini Live for updated settings")
             self._voice.stop()
 
         self._voice.set_user_name(settings.user_name)
+        self._voice.set_silent_mode(settings.assistant_mode == "Silent")
         self._voice.set_language(settings.speech_language)
 
-        if profile_changed and was_running:
+        if profile_changed and was_running and not self._voice.is_running:
             self._voice.start()
 
     def _handle_live_ready(self) -> None:
-        self._notify_status(
-            f"Listening with Gemini Live ({self._voice.language_tag})"
-        )
+        if self._settings.assistant_mode == "Silent":
+            status = f"Silent mode ready with Gemini Live ({self._voice.language_tag})"
+        else:
+            status = f"Listening with Gemini Live ({self._voice.language_tag})"
+        self._notify_status(status)
 
     def _handle_input_transcript(self, text: str) -> None:
         callback = self._on_heard
