@@ -27,6 +27,9 @@ python -m pytest
 - [ ] Confirm a second normal launch reactivates the existing Harvis instance instead of creating a duplicate process.
 - [ ] Confirm the startup greeting works in Speaking mode.
 - [ ] Confirm Harvis responds without an artificial delay after Gemini Live connects.
+- [ ] Leave Harvis running through the previous idle-disconnect window and confirm it remains usable afterward.
+- [ ] If Gemini Live rotates or drops the connection, confirm Harvis reconnects automatically instead of requiring a process restart.
+- [ ] Confirm a reconnect does not replay the normal startup greeting.
 - [ ] Confirm Harvis shuts down cleanly from its self-shutdown command.
 - [ ] Confirm `START_HARVIS.vbs` launches Harvis without leaving a terminal window visible.
 - [ ] Confirm `%APPDATA%\Harvis\harvis.log` receives runtime output when using the VBS launcher.
@@ -64,6 +67,7 @@ python -m harvis --visualizer-preview bars
 - [ ] Confirm the compact text popup appears.
 - [ ] Confirm the popup is transparent, movable, and always on top.
 - [ ] Confirm typed commands work without saying Harvis or Jarvis.
+- [ ] Confirm a queued typed command can still be sent after a transient Live reconnect.
 - [ ] Confirm visual searches show generic status text such as `Searching...` rather than exposing the target name.
 - [ ] Switch back to `Speaking` and confirm the normal live surface returns correctly.
 
