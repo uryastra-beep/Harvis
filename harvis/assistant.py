@@ -32,12 +32,18 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
 
     def __init__(self, *, user_name: str = "User", **kwargs: Any) -> None:
         self._user_name = self._normalize_user_name(user_name)
+        self._startup_greeting_sent = False
         super().__init__(**kwargs)
 
     @staticmethod
     def _normalize_user_name(user_name: str) -> str:
         value = " ".join(str(user_name).split()).strip()
         return value[:48] or "User"
+
+    def start(self) -> None:
+        if not self.is_running:
+            self._startup_greeting_sent = False
+        super().start()
 
     def set_user_name(self, user_name: str) -> None:
         self._user_name = self._normalize_user_name(user_name)
@@ -53,7 +59,9 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
         )
 
     async def _receive_live_messages(self, session, types, output_stream) -> None:
-        await session.send_realtime_input(text=self._startup_greeting_prompt())
+        if not self._startup_greeting_sent:
+            await session.send_realtime_input(text=self._startup_greeting_prompt())
+            self._startup_greeting_sent = True
         await super()._receive_live_messages(session, types, output_stream)
 
     def _system_instruction(self) -> str:
