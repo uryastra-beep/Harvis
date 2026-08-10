@@ -9,6 +9,8 @@ Harvis is a Python desktop personal assistant that combines Gemini Live conversa
 ### Highlights
 
 - Gemini Live native-audio conversation with Spanish (Latin America) and English response preferences.
+- Automatic Gemini Live reconnection after idle or server-side connection rotation, with session resumption when a resumable handle is available.
+- Context-window compression for longer-running Live sessions.
 - Speaking mode for microphone and voice interaction.
 - Silent mode with a compact transparent text-command popup and no microphone or speaker streams.
 - Secure Gemini API key storage from Settings.
@@ -24,7 +26,15 @@ Harvis is a Python desktop personal assistant that combines Gemini Live conversa
 - Optional `#G6m2i9` AI-authorship watermark for content Harvis is asked to write.
 - Watermark intent filtering so searches, URLs, navigation, and other operational typing stay unmarked.
 - Improved Unicode typing and explicit physical Enter handling.
-- Cleaner Gemini Live startup, shutdown, and latency behavior.
+- Cleaner Gemini Live startup, shutdown, latency, and reconnect behavior.
+
+### Gemini Live session recovery
+
+Harvis now enables Gemini Live session resumption and context-window compression. If a long-running Live connection is rotated or drops after Harvis has been idle, Harvis keeps the desktop process alive and attempts to reconnect with bounded exponential backoff instead of leaving the assistant permanently unresponsive.
+
+When Gemini provides a resumable session handle, Harvis reuses the latest valid handle on the next connection so conversational state can continue across the WebSocket rotation. Reconnects do not replay the normal startup greeting. Typed Silent-mode commands that fail during transport are returned to the local queue for a retry after reconnection.
+
+After repeated rapid reconnect failures, Harvis stops retrying and surfaces an unavailable status instead of creating an endless reconnect loop.
 
 ### Sphere microphone control
 
