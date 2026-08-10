@@ -52,7 +52,6 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
         )
 
     async def _receive_live_messages(self, session, types, output_stream) -> None:
-        self._mute_input_until = max(self._mute_input_until, time.monotonic() + 2.5)
         await session.send_realtime_input(text=self._startup_greeting_prompt())
         await super()._receive_live_messages(session, types, output_stream)
 
