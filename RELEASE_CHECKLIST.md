@@ -85,7 +85,22 @@ Test representative actions without using sensitive or destructive targets:
 - [ ] Type a short Unicode sentence with punctuation.
 - [ ] Type a multi-line sequence that uses physical Enter presses correctly.
 
-## 7. Visual interaction
+## 7. Multi-step task orchestration
+
+Use harmless deterministic workflows for these checks:
+
+- [ ] Give Harvis one long instruction containing at least three ordered computer actions and confirm it can execute the sequence as one task plan.
+- [ ] Confirm actions run in the same order requested by the user.
+- [ ] Include a short wait between two actions and confirm the workflow resumes afterward.
+- [ ] Confirm a plan can combine representative actions such as opening an app, typing text, pressing Enter, and performing another approved local action.
+- [ ] Confirm an invalid plan is rejected before its first action runs.
+- [ ] Confirm a plan stops if a step raises an error instead of continuing into later actions.
+- [ ] Confirm a missing or low-confidence visual target stops the remaining plan safely.
+- [ ] Confirm a sensitive visual action pauses the plan for explicit confirmation instead of continuing automatically.
+- [ ] Confirm Harvis self-shutdown cannot be embedded inside an action plan.
+- [ ] Confirm a workflow that depends on an unknown newly revealed screen state can fall back to individual tools after the deterministic prefix instead of guessing the rest.
+
+## 8. Visual interaction
 
 - [ ] Confirm Gemini Vision can locate and click a harmless visible target when cloud vision is available.
 - [ ] Confirm the local locator can complete a harmless visual action when Gemini Vision is unavailable or fails.
@@ -99,7 +114,7 @@ Expected locator order:
 Gemini Vision -> Local fallback -> Gemini Vision retry -> safe failure
 ```
 
-## 8. AI watermark
+## 9. AI watermark
 
 With Settings > AI > `AI watermark` set to `On`:
 
@@ -113,7 +128,7 @@ Then set `AI watermark` to `Off`:
 
 - [ ] Confirm authored text is written without the marker.
 
-## 9. Credentials and settings
+## 10. Credentials and settings
 
 - [ ] Confirm Settings > AI shows the Gemini API key as configured without revealing it.
 - [ ] Confirm saving an empty API-key field keeps the existing key.
@@ -121,7 +136,7 @@ Then set `AI watermark` to `Off`:
 - [ ] Confirm the Gemini API key does not appear in `settings.json`.
 - [ ] Confirm all expected settings persist after restarting Harvis.
 
-## 10. Repository review
+## 11. Repository review
 
 - [ ] Review `README.md` for accuracy.
 - [ ] Review `RELEASE_NOTES.md` and replace `vX.Y.Z` with the chosen release version.
@@ -129,7 +144,7 @@ Then set `AI watermark` to `Off`:
 - [ ] Confirm no API keys, secrets, logs, virtual environments, build folders, or personal temporary files are tracked.
 - [ ] Confirm all committed repository text is in English.
 
-## 11. GitHub release
+## 12. GitHub release
 
 - [ ] Choose the final semantic version and tag.
 - [ ] Use the updated `RELEASE_NOTES.md` as the basis for the GitHub release description.
