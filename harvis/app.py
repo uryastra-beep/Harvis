@@ -34,6 +34,7 @@ class AssistantSignals(QObject):
     response = Signal(str)
     audio_level = Signal(float)
     spectrum = Signal(object)
+    shutdown_requested = Signal()
 
 
 class HarvisSettingsWindow(SettingsWindow):
@@ -367,11 +368,17 @@ def main() -> int:
             def show_response(text: str) -> None:
                 print(f"[Harvis] Response: {text}", flush=True)
 
+            def request_shutdown() -> None:
+                print("[Harvis] Voice shutdown requested.", flush=True)
+                window.statusBar().showMessage("Shutting down Harvis")
+                QTimer.singleShot(250, app.quit)
+
             assistant_signals.status_changed.connect(show_status)
             assistant_signals.heard.connect(show_heard)
             assistant_signals.response.connect(show_response)
             assistant_signals.audio_level.connect(window.set_live_audio_level)
             assistant_signals.spectrum.connect(window.set_live_spectrum)
+            assistant_signals.shutdown_requested.connect(request_shutdown)
 
             assistant = HarvisAssistant(
                 settings_store.load(),
@@ -380,6 +387,7 @@ def main() -> int:
                 on_audio_level=assistant_signals.audio_level.emit,
                 on_spectrum=assistant_signals.spectrum.emit,
                 on_status=assistant_signals.status_changed.emit,
+                on_shutdown_requested=assistant_signals.shutdown_requested.emit,
             )
             window.set_assistant(assistant)
             app.aboutToQuit.connect(assistant.stop)
