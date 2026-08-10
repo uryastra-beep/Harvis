@@ -54,6 +54,7 @@ class GeminiLiveVoice:
         self._language_tag = language_tag
         self._voice_volume = max(0, min(100, int(voice_volume)))
         self._silent_mode = bool(silent_mode)
+        self._microphone_muted = False
         self._execute_tool = execute_tool
         self._on_input_transcript = on_input_transcript
         self._on_output_transcript = on_output_transcript
@@ -85,6 +86,11 @@ class GeminiLiveVoice:
     def silent_mode(self) -> bool:
         with self._state_lock:
             return self._silent_mode
+
+    @property
+    def microphone_muted(self) -> bool:
+        with self._state_lock:
+            return self._microphone_muted
 
     @property
     def is_running(self) -> bool:
@@ -136,6 +142,32 @@ class GeminiLiveVoice:
     def set_silent_mode(self, enabled: bool) -> None:
         with self._state_lock:
             self._silent_mode = bool(enabled)
+
+    def set_microphone_muted(self, muted: bool) -> bool:
+        """Mute or unmute microphone forwarding without disconnecting Gemini Live."""
+
+        normalized = bool(muted)
+        with self._state_lock:
+            self._microphone_muted = normalized
+
+        if normalized:
+            loop = self._loop
+            if loop is not None and loop.is_running():
+                try:
+                    loop.call_soon_threadsafe(self._discard_queued_microphone_audio)
+                except RuntimeError:
+                    pass
+            else:
+                self._discard_queued_microphone_audio()
+
+        return normalized
+
+    def toggle_microphone_muted(self) -> bool:
+        """Toggle microphone forwarding and return the new muted state."""
+
+        with self._state_lock:
+            target = not self._microphone_muted
+        return self.set_microphone_muted(target)
 
     def set_language(self, language_tag: str) -> None:
         if language_tag == self._language_tag:
@@ -368,8 +400,19 @@ class GeminiLiveVoice:
             if task is not None and not task.done():
                 task.cancel()
 
+    def _discard_queued_microphone_audio(self) -> None:
+        audio_queue = self._input_queue
+        if audio_queue is None:
+            return
+
+        while True:
+            try:
+                audio_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+
     def _audio_input_callback(self, indata, frames, time_info, status) -> None:
-        if self._stop_event.is_set() or self.silent_mode:
+        if self._stop_event.is_set() or self.silent_mode or self.microphone_muted:
             return
 
         if status:
@@ -429,6 +472,9 @@ class GeminiLiveVoice:
             try:
                 chunk = await asyncio.wait_for(audio_queue.get(), timeout=0.20)
             except TimeoutError:
+                continue
+
+            if self.microphone_muted:
                 continue
 
             await session.send_realtime_input(
