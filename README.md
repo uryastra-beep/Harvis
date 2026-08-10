@@ -1,16 +1,23 @@
 # Harvis
 
-Harvis is a desktop personal assistant designed to combine local system control, real-time voice interaction, AI-powered answers, and optional audio-reactive visualizers.
+Harvis is a cross-platform desktop personal assistant built in Python. It combines real-time Gemini Live conversation, local computer control, visual interaction, configurable voice and silent modes, and optional audio-reactive visualizers.
 
-## Project goals
+The project currently focuses on Windows while keeping the architecture portable to Linux wherever the underlying system integrations allow it.
 
-Harvis is being built to:
+## Highlights
 
-- Execute local computer actions such as opening the default browser or changing system volume.
-- Use the same voice architecture on Windows and Linux.
-- Hold low-latency voice conversations through Gemini Live.
-- Provide a dedicated settings interface.
-- Offer optional audio-reactive visualizers, including sphere and bar modes.
+- Real-time voice conversation through Gemini Live.
+- Speaking and Silent interaction modes.
+- Desktop control through approved local tools.
+- Application discovery and launch support.
+- Browser, media, volume, keyboard, mouse, scrolling, and self-shutdown actions.
+- Visual clicking with Gemini Vision plus a local fallback stack.
+- Sensitive visual actions require confirmation before clicking.
+- Secure Gemini API key storage from the Settings UI.
+- Single-instance behavior to avoid duplicate Harvis processes.
+- Sphere and Bars audio-reactive visualizers.
+- Optional AI-authorship watermark for content Harvis writes.
+- Persistent settings with a PySide6 liquid-glass interface.
 
 ## Official color palette
 
@@ -18,28 +25,121 @@ Harvis is being built to:
 - Secondary: `#85B1FF`
 - Tertiary: `#53EEFC`
 
-## Current development status
+## Interaction modes
 
-The repository currently contains:
+### Speaking
 
-- Persistent settings storage.
-- A PySide6 settings interface with animated liquid-glass navigation.
-- Gemini Live native audio input and output.
-- Input and output transcription in the development console.
-- Gemini Live function calling for approved local actions.
-- Local tools for opening HTTP/HTTPS URLs and changing master volume.
-- Windows master-volume support through pycaw.
-- Linux master-volume support through `wpctl` or `pactl`.
-- Preferred language settings for Spanish (Latin America) and English (United States).
-- A live sphere visualizer driven by the actual Gemini output amplitude.
-- A live bar visualizer driven by real-time frequency analysis of Gemini output PCM audio.
-- Automated tests for routing, settings persistence, the legacy spoken-command parser, and Gemini audio analysis.
+Speaking mode uses the microphone and Gemini Live native audio output. Harvis listens for requests addressed to `Harvis` or `Jarvis`, answers with voice, and can execute approved desktop tools.
 
-The current Gemini Live prototype streams microphone audio while Harvis is running. The model is instructed to respond or use tools only when addressed as `Harvis` or `Jarvis`. A dedicated local low-power wake-word engine will be added later so idle audio does not need to be sent to the cloud.
+When the visualizer is enabled:
+
+- `Sphere` opens a small transparent always-on-top orb.
+- `Bars` opens the frequency-bar visualizer.
+
+### Silent
+
+Silent mode is designed for places where voice interaction is inconvenient. Harvis does not open microphone or speaker streams in this mode. Instead, it shows a compact always-on-top text popup.
+
+Typed Silent-mode commands are treated as directly addressed to Harvis, so the wake name is not required.
+
+Examples:
+
+```text
+Open Chrome
+Set volume to 25 percent
+Click the GitHub tab
+Scroll down
+```
+
+The Silent popup intentionally hides detailed visual target names while Harvis is searching so the popup itself does not interfere with visual target detection.
+
+## Computer control
+
+Harvis can currently use approved tools for actions including:
+
+- Open and close installed applications.
+- Open HTTP and HTTPS URLs.
+- Change the system master volume.
+- Control common browser actions.
+- Control media playback.
+- Type text and multi-line text sequences.
+- Press Enter as a physical key action.
+- Move the pointer to common screen positions.
+- Scroll the active view.
+- Find and click visible UI elements.
+- Shut down the Harvis application itself.
+
+Harvis self-shutdown only closes Harvis. It does not shut down, restart, sleep, lock, or sign out of the operating system.
+
+## Visual interaction
+
+Harvis can locate visible UI targets and click them when the user explicitly requests a visual action.
+
+Current locator order:
+
+```text
+Gemini Vision
+    |
+    +-- confident match --> coordinates --> click
+    |
+    +-- unavailable / low confidence
+            |
+            v
+        Local locator stack
+            |
+            +-- confident match --> coordinates --> click
+            |
+            +-- miss
+                    |
+                    v
+            Gemini Vision retry
+                    |
+                    +-- confident match --> coordinates --> click
+                    |
+                    +-- miss --> could not find target
+```
+
+The local locator combines several sources of evidence, including accessibility information, local text or location evidence, OpenCV matching, and visual heuristics. It does not perform random low-confidence clicks.
+
+Consequential or destructive visual targets require explicit confirmation before Harvis clicks them.
+
+## AI authorship watermark
+
+Settings > AI includes an optional `AI watermark` toggle.
+
+When enabled, Harvis can prefix AI-authored written content with:
+
+```text
+#G6m2i9 
+```
+
+The marker is applied only when the request clearly asks Harvis to author content, such as writing, drafting, rewriting, composing, summarizing, or creating a recognizable text artifact.
+
+Operational typing remains unmarked. Examples include:
+
+- Search queries.
+- URLs and links.
+- Browser address-bar entry.
+- Navigation commands.
+- Folder names or other non-authored values.
+
+This keeps the marker useful as a lightweight authorship identifier without contaminating searches or navigation.
+
+## Gemini API key storage
+
+Harvis supports entering the Gemini API key directly in Settings > AI.
+
+On Windows, the key is stored in Windows Credential Manager under the Harvis credential target. On Linux, Harvis stores it in a user-only configuration file and attempts to apply restrictive filesystem permissions.
+
+Harvis can also fall back to the `GEMINI_API_KEY` environment variable.
+
+The API key is never written to `settings.json` or intended to be committed to the repository.
 
 ## Voice architecture
 
 ```text
+Speaking mode
+
 Microphone
     |
     v
@@ -47,134 +147,154 @@ Gemini Live
     |
     +--> Native audio response --> Speakers
     |                         |
-    |                         +--> RMS + spectrum analysis --> Live visualizer
+    |                         +--> RMS + spectrum analysis --> Visualizer
+    |
+    +--> Function call --> Harvis local tool --> Windows / Linux
+
+Silent mode
+
+Text popup
+    |
+    v
+Gemini Live
+    |
+    +--> Output transcription --> Silent popup
     |
     +--> Function call --> Harvis local tool --> Windows / Linux
 ```
 
-Gemini Live uses 16-bit PCM microphone input and returns 16-bit PCM audio output. Harvis currently uses a 16 kHz microphone stream and 24 kHz playback stream.
+Gemini Live uses 16-bit PCM audio. Harvis currently uses a 16 kHz microphone stream and 24 kHz playback stream in Speaking mode.
+
+## Settings
+
+Harvis currently stores persistent settings for:
+
+- Start with Windows.
+- User name.
+- Interaction mode: Speaking or Silent.
+- Voice volume.
+- Microphone device preference.
+- Preferred response language.
+- Visualizer enabled state.
+- Visualizer type.
+- Visualizer sensitivity.
+- AI provider.
+- AI watermark enabled state.
+
+Supported preferred response languages currently include:
+
+- Spanish (Latin America) (`es-419`)
+- English (United States) (`en-US`)
+
+Gemini Live can still understand multiple languages. The configured language acts as Harvis's preferred reply language.
 
 ## Development
 
 ### Requirements
 
-- Python 3.11 or newer
-- A working microphone and audio output device
-- Internet access for Gemini Live
-- A Gemini API key
-- Windows 10/11 for the current Windows UI target
-- On Linux, PortAudio plus either PipeWire (`wpctl`) or PulseAudio (`pactl`) for the relevant audio/system features
+- Python 3.11 or newer.
+- Internet access for Gemini Live and Gemini Vision.
+- A Gemini API key.
+- A microphone and audio output device for Speaking mode.
+- Windows 10/11 for the primary current desktop target.
+- On Linux, the required system utilities for the feature being used.
 
-### Setup
+Python dependencies are listed in `requirements.txt`.
+
+### Windows setup
+
+Create the virtual environment:
 
 ```powershell
 python -m venv .venv
 ```
 
+Activate it:
+
 ```powershell
 .\.venv\Scripts\Activate.ps1
 ```
+
+Install dependencies:
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-### Gemini API key
-
-Harvis reads the Gemini key from the `GEMINI_API_KEY` environment variable. Never commit an API key to this repository.
-
-For the current PowerShell session:
-
-```powershell
-$env:GEMINI_API_KEY="YOUR_KEY"
-```
-
-To save it for the current Windows user:
-
-```powershell
-[Environment]::SetEnvironmentVariable("GEMINI_API_KEY", "YOUR_KEY", "User")
-```
-
-Open a new terminal after setting a persistent user environment variable.
-
-### Run settings and Gemini Live
+Run Harvis:
 
 ```powershell
 python -m harvis
 ```
 
-Expected development console status:
+A convenience setup-and-run script is also included:
 
-```text
-[Harvis] Gemini Live runtime scheduled to start.
-[Harvis] Starting Gemini Live voice assistant
-[Harvis] Connecting to Gemini Live
-[Harvis] Gemini Live connected
-[Harvis] Listening with Gemini Live (es-419)
+```powershell
+.\run_harvis.ps1
 ```
 
-Input and output transcripts are printed as:
+After the environment is configured, `START_HARVIS.vbs` can launch Harvis without keeping a terminal window visible. Runtime output is written to:
 
 ```text
-[Harvis] Heard: ...
-[Harvis] Response: ...
+%APPDATA%\Harvis\harvis.log
 ```
 
-Try:
+If PowerShell blocks virtual-environment activation for the current session, this can be used before activating it:
 
-```text
-Harvis, abre Google.
-Harvis, pon el volumen al 70 por ciento.
-Harvis, what is the capital of Japan?
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 ```
 
-The first two requests can use local tools. General questions are answered directly by Gemini Live.
-
-To start the settings application without Gemini Live:
+### Run without Gemini Live
 
 ```powershell
 python -m harvis --no-voice
 ```
 
-## Settings
+### Visualizer previews
 
-### Language
-
-The language setting controls Harvis's preferred response language:
-
-- Spanish (Latin America) (`es-419`)
-- English (United States) (`en-US`)
-
-Gemini Live can still understand multiple languages. Native audio models choose the spoken language automatically; Harvis uses the setting as a response preference through its system instruction.
-
-### AI
-
-The active provider is `Gemini Live`. The API key is read from `GEMINI_API_KEY` and is not written to Harvis settings.
-
-### Visualizer
-
-When `Enable visualizer` is active, Harvis opens the selected live visualizer with the normal application. The sphere reacts to the actual output amplitude and the bars use a 42-bin real-time frequency analysis of the Gemini voice PCM stream. Sensitivity and visualizer type are applied from Settings.
-
-The separate preview button and preview CLI commands remain available and use simulated motion so the visualizer can be inspected without a live Gemini response.
-
-Sphere preview:
+Sphere:
 
 ```powershell
 python -m harvis --visualizer-preview sphere
 ```
 
-Bars preview:
+Bars:
 
 ```powershell
 python -m harvis --visualizer-preview bars
 ```
 
+Preview mode uses simulated activity. The normal live visualizers react to actual Gemini output audio.
+
+## Single-instance behavior
+
+Harvis allows only one normal application instance at a time. Starting Harvis again sends an activation message to the existing instance and brings it forward instead of leaving another background process running.
+
+Visualizer preview processes are intentionally independent from this restriction.
+
 ## Tests
+
+Run the test suite with:
 
 ```powershell
 python -m pytest
 ```
 
+The repository includes tests for settings, Gemini Live lifecycle safeguards, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
+
+## Current limitations
+
+- Gemini Live and Gemini Vision require network access and are subject to the limits of the configured Google API project.
+- Local visual detection is a fallback and cannot guarantee recognition of every interface.
+- Some Linux desktop-control features depend on X11-compatible tools such as `xdotool`; Wayland support is not complete.
+- Windows is currently the most heavily tested platform.
+- A packaged installer or signed executable is not currently part of the repository release process.
+
+## Release preparation
+
+See `RELEASE_CHECKLIST.md` for the final manual checks and `RELEASE_NOTES.md` for a ready-to-edit release description.
+
 ## License
 
-A project license has not been selected yet.
+A project license has not been selected yet. Add a license before public distribution if you want others to have explicit permissions to use, modify, or redistribute the project.
