@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from harvis.actions.keyboard_control import set_ai_watermark_enabled
 from harvis.assistant import HarvisAssistant
 from harvis.config import (
     SUPPORTED_ASSISTANT_MODES,
@@ -54,6 +55,7 @@ class HarvisSettingsWindow(SettingsWindow):
         ) = None
         self._assistant: HarvisAssistant | None = None
         super().__init__(settings_store)
+        set_ai_watermark_enabled(self._settings.ai_watermark_enabled)
 
     def set_assistant(self, assistant: HarvisAssistant) -> None:
         self._assistant = assistant
@@ -127,6 +129,10 @@ class HarvisSettingsWindow(SettingsWindow):
         self.ai_provider.addItems(("Gemini Live",))
         form.addRow("AI provider", self.ai_provider)
 
+        self.ai_watermark = QComboBox()
+        self.ai_watermark.addItems(("On", "Off"))
+        form.addRow("AI watermark", self.ai_watermark)
+
         self.gemini_api_key = QLineEdit()
         self.gemini_api_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.gemini_api_key.setClearButtonEnabled(True)
@@ -138,6 +144,12 @@ class HarvisSettingsWindow(SettingsWindow):
         form.addRow(self.gemini_api_key_status)
         self._refresh_gemini_api_key_status()
 
+        watermark_note = QLabel(
+            "When AI watermark is On, every text entry Harvis types starts with #G6m2i9 to identify AI-written text."
+        )
+        watermark_note.setObjectName("mutedLabel")
+        watermark_note.setWordWrap(True)
+
         note = QLabel(
             "Paste a key and choose Save changes. On Windows, Harvis stores it in Windows Credential Manager. "
             "On Linux, Harvis stores it in a user-only secrets file. The key is never written to settings.json "
@@ -147,6 +159,7 @@ class HarvisSettingsWindow(SettingsWindow):
         note.setWordWrap(True)
 
         layout.addWidget(group)
+        layout.addWidget(watermark_note)
         layout.addWidget(note)
         layout.addStretch(1)
         return page
@@ -209,6 +222,11 @@ class HarvisSettingsWindow(SettingsWindow):
             index = self.speech_language.findData(self._settings.speech_language)
             if index >= 0:
                 self.speech_language.setCurrentIndex(index)
+
+        if hasattr(self, "ai_watermark"):
+            self.ai_watermark.setCurrentText(
+                "On" if self._settings.ai_watermark_enabled else "Off"
+            )
 
         self._refresh_gemini_api_key_status()
 
@@ -349,6 +367,7 @@ class HarvisSettingsWindow(SettingsWindow):
         selected_user_name = self.user_name.text()
         selected_language = self.speech_language.currentData()
         selected_mode = self.assistant_mode.currentText()
+        selected_ai_watermark = self.ai_watermark.currentText() == "On"
         pending_api_key = self.gemini_api_key.text().strip()
         api_key_changed = False
 
@@ -369,11 +388,16 @@ class HarvisSettingsWindow(SettingsWindow):
 
         self._settings.user_name = selected_user_name
         self._settings.assistant_mode = selected_mode
+        self._settings.ai_watermark_enabled = selected_ai_watermark
         if isinstance(selected_language, str) and selected_language:
             self._settings.speech_language = selected_language
         self._settings_store.save(self._settings)
         self.user_name.setText(self._settings.user_name)
         self.assistant_mode.setCurrentText(self._settings.assistant_mode)
+        self.ai_watermark.setCurrentText(
+            "On" if self._settings.ai_watermark_enabled else "Off"
+        )
+        set_ai_watermark_enabled(self._settings.ai_watermark_enabled)
 
         if self._assistant is not None:
             if api_key_changed:
