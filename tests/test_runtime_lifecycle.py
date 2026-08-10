@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from harvis.voice.gemini_live import (
     INPUT_BLOCK_FRAMES,
     INPUT_QUEUE_LIMIT,
+    RECONNECT_MAX_DELAY_SECONDS,
     GeminiLiveVoice,
 )
 
@@ -57,3 +60,57 @@ def test_stop_keeps_reference_to_a_thread_that_has_not_exited() -> None:
 
     assert voice._thread is thread
     assert thread.join_timeout == 3.0
+
+
+def test_live_config_enables_session_resumption_and_context_compression() -> None:
+    voice = _voice()
+
+    config = voice._build_live_config()
+
+    assert config["session_resumption"] == {}
+    assert config["context_window_compression"] == {"sliding_window": {}}
+
+
+def test_live_config_reuses_latest_session_resumption_handle() -> None:
+    voice = _voice()
+    voice._session_resumption_handle = "resume-token"
+
+    config = voice._build_live_config()
+
+    assert config["session_resumption"] == {"handle": "resume-token"}
+
+
+def test_resumable_update_is_saved_for_the_next_connection() -> None:
+    voice = _voice()
+    response = SimpleNamespace(
+        session_resumption_update=SimpleNamespace(
+            resumable=True,
+            new_handle="next-token",
+        )
+    )
+
+    voice._remember_session_resumption_update(response)
+
+    assert voice._session_resumption_handle == "next-token"
+
+
+def test_non_resumable_update_keeps_last_valid_handle() -> None:
+    voice = _voice()
+    voice._session_resumption_handle = "stable-token"
+    response = SimpleNamespace(
+        session_resumption_update=SimpleNamespace(
+            resumable=False,
+            new_handle="",
+        )
+    )
+
+    voice._remember_session_resumption_update(response)
+
+    assert voice._session_resumption_handle == "stable-token"
+
+
+def test_reconnect_backoff_is_bounded() -> None:
+    voice = _voice()
+
+    assert voice._reconnect_delay_seconds(1) > 0
+    assert voice._reconnect_delay_seconds(20) == RECONNECT_MAX_DELAY_SECONDS
