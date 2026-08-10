@@ -17,6 +17,7 @@ The project currently focuses on Windows while keeping the architecture portable
 - Single-instance behavior to avoid duplicate Harvis processes.
 - Sphere and Bars audio-reactive visualizers.
 - Click-to-mute microphone control on the live Sphere without disconnecting Gemini Live.
+- Smooth Sphere-to-spinner loading animation while Harvis processes requests and visual searches.
 - Optional AI-authorship watermark for content Harvis writes.
 - Persistent settings with a PySide6 liquid-glass interface.
 
@@ -38,6 +39,8 @@ When the visualizer is enabled:
 - `Bars` opens the frequency-bar visualizer.
 
 A short click on the live Sphere toggles microphone forwarding on or off without closing the audio stream or disconnecting the Gemini Live session. When muted, the Sphere displays a diagonal tertiary-color indicator. Dragging the Sphere still moves it and does not toggle the microphone.
+
+When Harvis starts processing a recognized request, the live Sphere smoothly shrinks and fades into a rotating multi-ring loading indicator using the Harvis secondary and tertiary colors. It returns to the normal audio-reactive sphere when a response begins or the current visual search finishes. Visual target searches explicitly keep the loading state active while Harvis is locating the requested UI element.
 
 ### Silent
 
