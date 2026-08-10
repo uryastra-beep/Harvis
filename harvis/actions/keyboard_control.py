@@ -14,10 +14,21 @@ SUSPICIOUS_PUNCTUATION_RE = re.compile(
 )
 SUPPORTED_KEYS = {"enter"}
 MAX_LINE_SEQUENCE = 50
+AI_WATERMARK = "#G6m2i9 "
+_ai_watermark_enabled = False
 
 
-def type_text(text: str) -> dict[str, Any]:
+def set_ai_watermark_enabled(enabled: bool) -> None:
+    """Enable or disable the personal AI-authorship watermark for typed text."""
+
+    global _ai_watermark_enabled
+    _ai_watermark_enabled = bool(enabled)
+
+
+def type_text(text: str, *, apply_watermark: bool = True) -> dict[str, Any]:
     value = _normalize_text_payload(str(text))
+    if apply_watermark:
+        value = _apply_ai_watermark(value)
     if not value:
         return {"status": "completed", "characters": 0}
 
@@ -89,9 +100,11 @@ def type_lines(lines: list[str]) -> dict[str, Any]:
         _validate_text_payload(value)
         normalized_lines.append(value)
 
+    watermark_pending = _ai_watermark_enabled
     for index, value in enumerate(normalized_lines):
         if value:
-            type_text(value)
+            type_text(value, apply_watermark=watermark_pending)
+            watermark_pending = False
         if index < len(normalized_lines) - 1:
             press_key("enter")
 
@@ -101,6 +114,14 @@ def type_lines(lines: list[str]) -> dict[str, Any]:
         "characters": sum(len(value) for value in normalized_lines),
         "enters": len(normalized_lines) - 1,
     }
+
+
+def _apply_ai_watermark(text: str) -> str:
+    """Prefix typed content once when the personal AI watermark is enabled."""
+
+    if not _ai_watermark_enabled or not text or text.startswith(AI_WATERMARK):
+        return text
+    return f"{AI_WATERMARK}{text}"
 
 
 def _normalize_text_payload(text: str) -> str:
@@ -334,4 +355,4 @@ def _linux_press_key(key: str, count: int) -> None:
             raise SystemActionError("Harvis could not press the requested Linux key.")
 
 
-__all__ = ["press_key", "type_lines", "type_text"]
+__all__ = ["press_key", "set_ai_watermark_enabled", "type_lines", "type_text"]
