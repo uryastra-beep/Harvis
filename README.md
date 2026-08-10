@@ -7,6 +7,7 @@ The project currently focuses on Windows while keeping the architecture portable
 ## Highlights
 
 - Real-time voice conversation through Gemini Live.
+- Automatic Live-session recovery with session resumption, context-window compression, and bounded reconnect backoff.
 - Speaking and Silent interaction modes.
 - Desktop control through approved local tools.
 - Application discovery and launch support.
@@ -176,6 +177,8 @@ Gemini Live
 
 Gemini Live uses 16-bit PCM audio. Harvis currently uses a 16 kHz microphone stream and 24 kHz playback stream in Speaking mode.
 
+Harvis also enables Live session resumption and context-window compression. When the service rotates or drops a long-running WebSocket connection, Harvis attempts to reconnect with the latest resumable handle and bounded exponential backoff instead of leaving the desktop assistant permanently unresponsive. Internal reconnects do not replay the normal startup greeting.
+
 ## Settings
 
 Harvis currently stores persistent settings for:
@@ -292,7 +295,7 @@ Run the test suite with:
 python -m pytest
 ```
 
-The repository includes tests for settings, Gemini Live lifecycle safeguards, microphone mute gating, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
+The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
 
 ## Current limitations
 
