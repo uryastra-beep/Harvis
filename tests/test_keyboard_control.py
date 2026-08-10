@@ -91,7 +91,45 @@ def test_press_key_rejects_unknown_key() -> None:
         keyboard_control.press_key("space")
 
 
-def test_gemini_registers_press_key_tool() -> None:
+def test_type_lines_keeps_repeated_text_sequence_exact(monkeypatch) -> None:
+    calls: list[tuple[str, str | int]] = []
+
+    monkeypatch.setattr(
+        keyboard_control,
+        "type_text",
+        lambda text: calls.append(("text", text)) or {"status": "completed"},
+    )
+    monkeypatch.setattr(
+        keyboard_control,
+        "press_key",
+        lambda key, count=1: calls.append(("key", key)) or {"status": "completed"},
+    )
+
+    result = keyboard_control.type_lines(["hola", "hola", "hola", "hola"])
+
+    assert calls == [
+        ("text", "hola"),
+        ("key", "enter"),
+        ("text", "hola"),
+        ("key", "enter"),
+        ("text", "hola"),
+        ("key", "enter"),
+        ("text", "hola"),
+    ]
+    assert result == {
+        "status": "completed",
+        "lines": 4,
+        "characters": 16,
+        "enters": 3,
+    }
+
+
+def test_type_lines_rejects_embedded_newline() -> None:
+    with pytest.raises(ValueError, match="exactly one line"):
+        keyboard_control.type_lines(["hola\nhola"])
+
+
+def test_gemini_registers_keyboard_tools() -> None:
     declarations = HarvisGeminiLiveVoice._tool_declarations()
     functions = {
         function["name"]: function
@@ -99,4 +137,5 @@ def test_gemini_registers_press_key_tool() -> None:
     }
 
     assert "press_key" in functions
+    assert "type_lines" in functions
     assert functions["press_key"]["parameters"]["properties"]["key"]["enum"] == ["enter"]
