@@ -330,8 +330,8 @@ class HarvisSettingsWindow(SettingsWindow):
             self._live_visualizer.focus_command_input()
 
     def set_live_audio_level(self, level: float) -> None:
-        if isinstance(self._live_visualizer, (VisualVisualizerWindowPlaceholder,)):
-            pass
+        if isinstance(self._live_visualizer, (OrbPopupWindow, VisualizerWindow)):
+            self._live_visualizer.set_audio_level(level)
 
     def set_live_spectrum(self, spectrum) -> None:
         if isinstance(self._live_visualizer, (OrbPopupWindow, VisualizerWindow)):
@@ -371,7 +371,7 @@ class HarvisSettingsWindow(SettingsWindow):
             if api_key_changed:
                 self._assistant.stop()
             self._assistant.apply_settings(self._settings)
-            if api_key_changed and not self._assistant._voice.is_running:
+            if api_key_changed:
                 self._assistant.start()
 
         self.sync_live_visualizer()
