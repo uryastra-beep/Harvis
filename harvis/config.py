@@ -27,6 +27,7 @@ class HarvisSettings:
     visualizer_type: str = "Sphere"
     visualizer_sensitivity: int = 60
     ai_provider: str = "Gemini Live"
+    ai_watermark_enabled: bool = True
 
     def normalized(self) -> "HarvisSettings":
         normalized_name = " ".join(str(self.user_name).split()).strip()
@@ -42,6 +43,9 @@ class HarvisSettings:
 
         if self.visualizer_type not in {"Sphere", "Bars"}:
             self.visualizer_type = "Sphere"
+
+        if not isinstance(self.ai_watermark_enabled, bool):
+            self.ai_watermark_enabled = True
 
         return self
 
