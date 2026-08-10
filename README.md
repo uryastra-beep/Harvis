@@ -10,6 +10,7 @@ The project currently focuses on Windows while keeping the architecture portable
 - Automatic Live-session recovery with session resumption, context-window compression, and bounded reconnect backoff.
 - Speaking and Silent interaction modes.
 - Desktop control through approved local tools.
+- Multi-step task orchestration for long single-instruction workflows.
 - Application discovery and launch support.
 - Browser, media, volume, keyboard, mouse, scrolling, and self-shutdown actions.
 - Visual clicking with Gemini Vision plus a local fallback stack.
@@ -77,6 +78,18 @@ Harvis can currently use approved tools for actions including:
 - Shut down the Harvis application itself.
 
 Harvis self-shutdown only closes Harvis. It does not shut down, restart, sleep, lock, or sign out of the operating system.
+
+## Multi-step task orchestration
+
+Harvis includes a bounded task-orchestration layer for long requests that contain several ordered computer actions. Gemini can turn one instruction into a single `execute_action_plan` call instead of improvising a loose chain of unrelated tool calls.
+
+The orchestrator validates the complete plan before the first action runs, preserves the requested order, and can execute up to 24 approved steps. Supported plan actions include application launching and closing, URLs, volume changes, browser and media controls, pointer movement, scrolling, typing, physical Enter presses, visual clicks, and short waits for an application or page to settle.
+
+Wait steps are intentionally bounded to 5 seconds each and 15 seconds total per plan. Harvis self-shutdown is not allowed inside an action plan.
+
+The plan stops safely when a step raises an error, a visual target is missing or too uncertain, or a visual action requires explicit confirmation. Workflows whose next action depends on an unknown new screen state should use the deterministic plan only for the predictable prefix, then continue with individual tools after observing the returned state.
+
+This layer is meant for requests such as opening an application, waiting briefly for it to load, typing several pieces of content, pressing Enter, changing another setting, and continuing through a known ordered sequence from one user instruction.
 
 ## Visual interaction
 
@@ -162,6 +175,8 @@ Gemini Live
     |                         +--> RMS + spectrum analysis --> Visualizer
     |
     +--> Function call --> Harvis local tool --> Windows / Linux
+    |
+    +--> execute_action_plan --> Task orchestrator --> ordered approved actions
 
 Silent mode
 
@@ -173,6 +188,8 @@ Gemini Live
     +--> Output transcription --> Silent popup
     |
     +--> Function call --> Harvis local tool --> Windows / Linux
+    |
+    +--> execute_action_plan --> Task orchestrator --> ordered approved actions
 ```
 
 Gemini Live uses 16-bit PCM audio. Harvis currently uses a 16 kHz microphone stream and 24 kHz playback stream in Speaking mode.
@@ -295,11 +312,12 @@ Run the test suite with:
 python -m pytest
 ```
 
-The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
+The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
 
 ## Current limitations
 
 - Gemini Live and Gemini Vision require network access and are subject to the limits of the configured Google API project.
+- Multi-step action plans intentionally stop when a visual step becomes uncertain or requires confirmation; they do not guess through unknown UI states.
 - Local visual detection is a fallback and cannot guarantee recognition of every interface.
 - Some Linux desktop-control features depend on X11-compatible tools such as `xdotool`; Wayland support is not complete.
 - Windows is currently the most heavily tested platform.
