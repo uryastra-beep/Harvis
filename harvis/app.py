@@ -347,15 +347,16 @@ def main() -> int:
     app.setOrganizationName("Harvis")
     app.setQuitOnLastWindowClosed(True)
 
-    instance_coordinator = SingleInstanceCoordinator(parent=app)
-    try:
-        if not instance_coordinator.acquire_or_activate_existing():
-            return 0
-    except RuntimeError as exc:
-        print(f"[Harvis] Single-instance startup failed: {exc}", flush=True)
-        return 1
-
-    app.aboutToQuit.connect(instance_coordinator.close)
+    instance_coordinator: SingleInstanceCoordinator | None = None
+    if options.visualizer_preview is None:
+        instance_coordinator = SingleInstanceCoordinator(parent=app)
+        try:
+            if not instance_coordinator.acquire_or_activate_existing():
+                return 0
+        except RuntimeError as exc:
+            print(f"[Harvis] Single-instance startup failed: {exc}", flush=True)
+            return 1
+        app.aboutToQuit.connect(instance_coordinator.close)
 
     sync_gemini_api_key_environment()
 
@@ -415,9 +416,10 @@ def main() -> int:
             window.set_assistant(assistant)
             app.aboutToQuit.connect(assistant.stop)
 
-    instance_coordinator.activation_requested.connect(
-        lambda: _activate_window(window)
-    )
+    if instance_coordinator is not None:
+        instance_coordinator.activation_requested.connect(
+            lambda: _activate_window(window)
+        )
 
     window.show()
 
