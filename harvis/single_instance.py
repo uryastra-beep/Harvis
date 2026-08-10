@@ -82,7 +82,7 @@ class SingleInstanceCoordinator(QObject):
                 self._handle_message(socket)
 
     def _handle_message(self, socket: QLocalSocket) -> None:
-        payload = bytes(socket.readAll()).strip().casefold()
+        payload = bytes(socket.readAll()).strip().lower()
         if payload in {b"", b"activate"}:
             self.activation_requested.emit()
 
