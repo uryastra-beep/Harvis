@@ -223,17 +223,21 @@ class HarvisSettingsWindow(SettingsWindow):
             demo_mode=True,
         )
         preview.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        preview.destroyed.connect(self._clear_visualizer_preview)
+        preview.destroyed.connect(
+            lambda *args, current=preview: self._clear_visualizer_preview(current)
+        )
         self._visualizer_preview = preview
         preview.show()
         preview.raise_()
         preview.activateWindow()
 
-    def _clear_visualizer_preview(self, *args) -> None:
-        self._visualizer_preview = None
+    def _clear_visualizer_preview(self, preview=None) -> None:
+        if preview is None or self._visualizer_preview is preview:
+            self._visualizer_preview = None
 
-    def _clear_live_visualizer(self, *args) -> None:
-        self._live_visualizer = None
+    def _clear_live_visualizer(self, visualizer=None) -> None:
+        if visualizer is None or self._live_visualizer is visualizer:
+            self._live_visualizer = None
 
     def _live_visualizer_matches_settings(self) -> bool:
         if self._live_visualizer is None:
@@ -256,7 +260,9 @@ class HarvisSettingsWindow(SettingsWindow):
             popup = SilentCommandPopup()
             popup.command_submitted.connect(self._submit_silent_command)
             popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-            popup.destroyed.connect(self._clear_live_visualizer)
+            popup.destroyed.connect(
+                lambda *args, current=popup: self._clear_live_visualizer(current)
+            )
             return popup
 
         if self._settings.visualizer_type.strip().lower() == "sphere":
@@ -272,7 +278,9 @@ class HarvisSettingsWindow(SettingsWindow):
             )
 
         visualizer.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
-        visualizer.destroyed.connect(self._clear_live_visualizer)
+        visualizer.destroyed.connect(
+            lambda *args, current=visualizer: self._clear_live_visualizer(current)
+        )
         return visualizer
 
     def sync_live_visualizer(self) -> None:
