@@ -193,6 +193,7 @@ class HarvisSettingsWindow(SettingsWindow):
         live_note = QLabel(
             "When enabled in Speaking mode, the live visualizer reacts to Harvis's actual Gemini voice audio. "
             "Sphere mode appears as a small transparent always-on-top orb that can be dragged anywhere. "
+            "Click the Sphere to mute or unmute microphone forwarding without disconnecting Gemini Live. "
             "Silent mode replaces the visualizer with the text command popup."
         )
         live_note.setObjectName("mutedLabel")
@@ -289,6 +290,9 @@ class HarvisSettingsWindow(SettingsWindow):
                 sensitivity=self._settings.visualizer_sensitivity,
                 demo_mode=False,
             )
+            visualizer.clicked.connect(self._toggle_microphone_from_orb)
+            if self._assistant is not None:
+                visualizer.set_microphone_muted(self._assistant.microphone_muted)
         else:
             visualizer = VisualizerWindow(
                 visualizer_type="Bars",
@@ -331,8 +335,28 @@ class HarvisSettingsWindow(SettingsWindow):
             self._settings.visualizer_sensitivity
         )
         self._live_visualizer.set_demo_mode(False)
+        if isinstance(self._live_visualizer, OrbPopupWindow):
+            self._live_visualizer.set_microphone_muted(
+                self._assistant.microphone_muted
+            )
         self._live_visualizer.show()
         self._live_visualizer.raise_()
+
+    def _toggle_microphone_from_orb(self) -> None:
+        if self._assistant is None or self._settings.assistant_mode != "Speaking":
+            return
+
+        try:
+            muted = self._assistant.toggle_microphone_muted()
+        except Exception as exc:
+            self.statusBar().showMessage(
+                f"Could not change microphone state: {exc}",
+                4000,
+            )
+            return
+
+        if isinstance(self._live_visualizer, OrbPopupWindow):
+            self._live_visualizer.set_microphone_muted(muted)
 
     def _submit_silent_command(self, text: str) -> None:
         popup = self._live_visualizer
