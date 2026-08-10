@@ -6,6 +6,11 @@ import platform
 from ctypes import wintypes
 from typing import Any
 
+from harvis.actions.local_vision import (
+    LOCAL_CONFIDENCE_THRESHOLD,
+    LocalVisionTarget,
+    locate_local_target,
+)
 from harvis.actions.screen_control import (
     ScreenCapture,
     _click_mouse,
@@ -42,7 +47,7 @@ def vision_click(
     button: str = "left",
     confirmed: bool = False,
 ) -> dict[str, Any]:
-    """Find a visible screen element with Gemini vision and click its center."""
+    """Locate a visible UI target locally first, then use Gemini vision as fallback."""
 
     target_text = str(target).strip()
     if not target_text:
@@ -53,55 +58,225 @@ def vision_click(
         raise ValueError("button must be left, right, or double_left.")
 
     preferred_capture = capture_preferred_screen()
-    preferred_target = locate_visual_target(preferred_capture, target_text)
-    best_capture = preferred_capture
-    best_target = preferred_target
-    attempts = 1
+    full_capture: ScreenCapture | None = None
 
-    if not _is_confident_target(preferred_target):
-        full_capture = capture_full_screen()
-        if _capture_geometry(full_capture) != _capture_geometry(preferred_capture):
-            full_target = locate_visual_target(full_capture, target_text)
-            attempts += 1
-            if _target_score(full_target) > _target_score(best_target):
-                best_capture = full_capture
-                best_target = full_target
+    local_attempts = 1
+    preferred_local = locate_local_target(preferred_capture, target_text)
+    best_local_capture = preferred_capture
+    best_local_target = preferred_local
 
+    if not _is_confident_local_target(preferred_local):
+        candidate_full_capture = capture_full_screen()
+        if _capture_geometry(candidate_full_capture) != _capture_geometry(
+            preferred_capture
+        ):
+            full_capture = candidate_full_capture
+            local_attempts += 1
+            full_local = locate_local_target(full_capture, target_text)
+            if _local_target_score(full_local) > _local_target_score(
+                best_local_target
+            ):
+                best_local_capture = full_capture
+                best_local_target = full_local
+
+    if _is_confident_local_target(best_local_target):
+        return _complete_local_click(
+            target_text,
+            normalized_button,
+            confirmed,
+            best_local_capture,
+            best_local_target,
+            attempts=local_attempts,
+        )
+
+    cloud_attempts = 0
+    cloud_error: Exception | None = None
+    cloud_capture = preferred_capture
+    cloud_target: VisionTarget | None = None
+
+    try:
+        cloud_target = locate_visual_target(preferred_capture, target_text)
+        cloud_attempts += 1
+
+        if not _is_confident_target(cloud_target):
+            if full_capture is None:
+                candidate_full_capture = capture_full_screen()
+                if _capture_geometry(candidate_full_capture) != _capture_geometry(
+                    preferred_capture
+                ):
+                    full_capture = candidate_full_capture
+
+            if full_capture is not None:
+                full_target = locate_visual_target(full_capture, target_text)
+                cloud_attempts += 1
+                if _target_score(full_target) > _target_score(cloud_target):
+                    cloud_capture = full_capture
+                    cloud_target = full_target
+    except Exception as exc:
+        cloud_error = exc
+
+    if cloud_target is not None and _is_confident_target(cloud_target):
+        return _complete_cloud_click(
+            target_text,
+            normalized_button,
+            confirmed,
+            cloud_capture,
+            cloud_target,
+            local_attempts=local_attempts,
+            cloud_attempts=cloud_attempts,
+        )
+
+    return _failed_vision_result(
+        target_text,
+        best_local_target,
+        local_attempts=local_attempts,
+        cloud_target=cloud_target,
+        cloud_attempts=cloud_attempts,
+        cloud_error=cloud_error,
+    )
+
+
+def _complete_local_click(
+    target_text: str,
+    button: str,
+    confirmed: bool,
+    capture: ScreenCapture,
+    target: LocalVisionTarget,
+    *,
+    attempts: int,
+) -> dict[str, Any]:
     result: dict[str, Any] = {
-        "status": "not_found",
+        "status": "local_match",
         "target": target_text,
-        "found": best_target.found,
-        "confidence": round(best_target.confidence, 3),
-        "description": best_target.description,
-        "sensitive": best_target.sensitive,
-        "box_2d": list(best_target.box_2d),
-        "model": best_target.model,
+        "found": target.found,
+        "confidence": round(target.confidence, 3),
+        "description": target.description,
+        "sensitive": target.sensitive,
+        "locator": "local",
+        "methods": list(target.methods),
+        "box": list(target.box),
+        "x": target.x,
+        "y": target.y,
+        "capture_origin": [capture.origin_x, capture.origin_y],
+        "capture_size": [capture.width, capture.height],
         "attempts": attempts,
+        "cloud_fallback_used": False,
     }
+    if target.diagnostics:
+        result["diagnostics"] = list(target.diagnostics)
 
-    if not _is_confident_target(best_target):
-        if best_target.found:
-            result["status"] = "low_confidence"
+    if target.sensitive and not confirmed:
+        result["status"] = "confirmation_required"
+        result["requires_confirmation"] = True
         return result
 
-    screen_x, screen_y = _normalized_to_screen(
-        best_target.x_1000,
-        best_target.y_1000,
-        best_capture,
-    )
-    result["x"] = screen_x
-    result["y"] = screen_y
-    result["capture_origin"] = [best_capture.origin_x, best_capture.origin_y]
-    result["capture_size"] = [best_capture.width, best_capture.height]
+    _move_cursor(target.x, target.y, duration=0.20)
+    _click_mouse(button)
+    result["status"] = "clicked"
+    return result
 
-    if best_target.sensitive and not confirmed:
+
+def _complete_cloud_click(
+    target_text: str,
+    button: str,
+    confirmed: bool,
+    capture: ScreenCapture,
+    target: VisionTarget,
+    *,
+    local_attempts: int,
+    cloud_attempts: int,
+) -> dict[str, Any]:
+    screen_x, screen_y = _normalized_to_screen(
+        target.x_1000,
+        target.y_1000,
+        capture,
+    )
+
+    result: dict[str, Any] = {
+        "status": "cloud_match",
+        "target": target_text,
+        "found": target.found,
+        "confidence": round(target.confidence, 3),
+        "description": target.description,
+        "sensitive": target.sensitive,
+        "box_2d": list(target.box_2d),
+        "model": target.model,
+        "locator": "gemini",
+        "x": screen_x,
+        "y": screen_y,
+        "capture_origin": [capture.origin_x, capture.origin_y],
+        "capture_size": [capture.width, capture.height],
+        "attempts": local_attempts + cloud_attempts,
+        "local_attempts": local_attempts,
+        "cloud_attempts": cloud_attempts,
+        "cloud_fallback_used": True,
+    }
+
+    if target.sensitive and not confirmed:
         result["status"] = "confirmation_required"
         result["requires_confirmation"] = True
         return result
 
     _move_cursor(screen_x, screen_y, duration=0.20)
-    _click_mouse(normalized_button)
+    _click_mouse(button)
     result["status"] = "clicked"
+    return result
+
+
+def _failed_vision_result(
+    target_text: str,
+    local_target: LocalVisionTarget,
+    *,
+    local_attempts: int,
+    cloud_target: VisionTarget | None,
+    cloud_attempts: int,
+    cloud_error: Exception | None,
+) -> dict[str, Any]:
+    best_found = local_target.found
+    best_confidence = local_target.confidence
+    description = local_target.description
+    sensitive = local_target.sensitive
+
+    if cloud_target is not None and _target_score(cloud_target) > best_confidence:
+        best_found = cloud_target.found
+        best_confidence = cloud_target.confidence
+        description = cloud_target.description
+        sensitive = cloud_target.sensitive
+
+    if cloud_error is not None:
+        status = "local_low_confidence" if local_target.found else "vision_unavailable"
+    elif best_found:
+        status = "low_confidence"
+    else:
+        status = "not_found"
+
+    result: dict[str, Any] = {
+        "status": status,
+        "target": target_text,
+        "found": best_found,
+        "confidence": round(best_confidence, 3),
+        "description": description,
+        "sensitive": sensitive,
+        "locator": "local+gemini",
+        "methods": list(local_target.methods),
+        "attempts": local_attempts + cloud_attempts,
+        "local_attempts": local_attempts,
+        "cloud_attempts": cloud_attempts,
+        "cloud_fallback_used": True,
+    }
+
+    if local_target.found:
+        result["local_box"] = list(local_target.box)
+        result["local_x"] = local_target.x
+        result["local_y"] = local_target.y
+    if local_target.diagnostics:
+        result["diagnostics"] = list(local_target.diagnostics)
+    if cloud_target is not None:
+        result["model"] = cloud_target.model
+        result["cloud_confidence"] = round(cloud_target.confidence, 3)
+    if cloud_error is not None:
+        result["cloud_error"] = str(cloud_error)
+
     return result
 
 
@@ -205,6 +380,16 @@ def _monitor_containing_point(monitors, x: int, y: int):
 
 def _capture_geometry(capture: ScreenCapture) -> tuple[int, int, int, int]:
     return capture.origin_x, capture.origin_y, capture.width, capture.height
+
+
+def _local_target_score(target: LocalVisionTarget) -> float:
+    if not target.found:
+        return 0.0
+    return target.confidence
+
+
+def _is_confident_local_target(target: LocalVisionTarget) -> bool:
+    return target.found and target.confidence >= LOCAL_CONFIDENCE_THRESHOLD
 
 
 def _target_score(target: VisionTarget) -> float:
