@@ -24,6 +24,10 @@ from harvis.ai_watermark import should_watermark_ai_authored_text
 from harvis.config import HarvisSettings
 from harvis.core.intents import Intent, IntentType
 from harvis.core.router import IntentRouter
+from harvis.core.task_orchestrator import (
+    TaskOrchestrator,
+    task_plan_tool_declaration,
+)
 from harvis.voice.gemini_live import GeminiLiveVoice
 
 
@@ -69,11 +73,18 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             f"{super()._system_instruction()} "
             "You can operate the desktop through approved tools. Prefer direct local tools for "
             "opening applications, closing applications, browser shortcuts, media controls, typing, key presses, "
-            "and scrolling. When the user explicitly tells Harvis or Jarvis to shut itself down in the user's "
-            "current language, call shutdown_harvis immediately. shutdown_harvis closes only the Harvis "
-            "application; it must never shut down, restart, sleep, lock, or sign out of the computer. Do not call "
-            "shutdown_harvis when the user is merely discussing, quoting, or testing the wording of that command. "
-            "When the user asks for a sequence that alternates literal text and Enter, such as "
+            "and scrolling. When one user request contains several ordered computer actions, preserve the user's "
+            "exact order and separate deterministic steps from steps that require observing a new screen state. "
+            "For long deterministic sequences, prefer execute_action_plan so Harvis can perform the workflow as "
+            "one bounded plan. Use short wait steps only when an application or page needs time to settle. Never "
+            "place shutdown_harvis inside an action plan. If a visual step needs confirmation or cannot be located "
+            "confidently, stop the plan and ask the user instead of continuing blindly. When later steps depend on "
+            "what appears after an earlier action, execute only the deterministic prefix and then continue with "
+            "individual tools based on the returned state. When the user explicitly tells Harvis or Jarvis to shut "
+            "itself down in the user's current language, call shutdown_harvis immediately. shutdown_harvis closes "
+            "only the Harvis application; it must never shut down, restart, sleep, lock, or sign out of the computer. "
+            "Do not call shutdown_harvis when the user is merely discussing, quoting, or testing the wording of that "
+            "command. When the user asks for a sequence that alternates literal text and Enter, such as "
             "'type hello, Enter, hello, Enter, hello', use type_lines once with the exact requested text lines in "
             "order. Do not split that pattern into several type_text and press_key calls. When the user asks to "
             "press Enter by itself, use press_key with key='enter'. Never encode a requested keyboard key press as "
@@ -365,6 +376,7 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
                 "function_declarations": [
                     *base_functions,
                     *desktop_functions,
+                    task_plan_tool_declaration(),
                 ]
             }
         ]
@@ -429,6 +441,10 @@ class HarvisAssistant:
         self._on_status = on_status
         self._on_shutdown_requested = on_shutdown_requested
         self._router = IntentRouter()
+        self._task_orchestrator = TaskOrchestrator(
+            executor=self._execute_tool,
+            on_status=self._notify_status,
+        )
         self._watermark_context_text = ""
         self._watermark_context_at = 0.0
         self._watermark_pending = False
@@ -568,6 +584,12 @@ class HarvisAssistant:
         self._notify_status(f"Gemini Live unavailable: {error}")
 
     def _execute_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name == "execute_action_plan":
+            steps = arguments.get("steps", [])
+            if not isinstance(steps, list):
+                raise ValueError("execute_action_plan requires steps as a list.")
+            return self._task_orchestrator.execute(steps)
+
         if name == "shutdown_harvis":
             callback = self._on_shutdown_requested
             if callback is None:
