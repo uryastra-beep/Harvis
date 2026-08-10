@@ -61,7 +61,11 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             f"{super()._system_instruction()} "
             "You can operate the desktop through approved tools. Prefer direct local tools for "
             "opening applications, closing applications, browser shortcuts, media controls, typing, key presses, "
-            "and scrolling. When the user asks for a sequence that alternates literal text and Enter, such as "
+            "and scrolling. When the user explicitly tells you 'Jarvis apágate', 'Jarvis apagate', "
+            "'Harvis apágate', or 'Harvis apagate', call shutdown_harvis immediately. shutdown_harvis closes only "
+            "the Harvis application; it must never shut down, restart, sleep, lock, or sign out of the computer. "
+            "Do not call shutdown_harvis when the user is merely discussing or quoting the shutdown phrase. "
+            "When the user asks for a sequence that alternates literal text and Enter, such as "
             "'type hello, Enter, hello, Enter, hello', use type_lines once with the exact requested text lines in "
             "order. Do not split that pattern into several type_text and press_key calls. When the user asks to "
             "press Enter by itself, use press_key with key='enter'. Never encode a requested keyboard key press as "
@@ -235,9 +239,10 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             {
                 "name": "vision_click",
                 "description": (
-                    "Take a full-screen screenshot, use Gemini vision to find a user-described visible UI "
-                    "element, move the pointer to it, and click it. Use only for explicit visual interaction "
-                    "requests when a direct local control is not more appropriate."
+                    "Take a screen capture, try Harvis's local visual locator first, then use Gemini vision only "
+                    "when local methods are not confident. Find the requested visible UI element, move the pointer "
+                    "to it, and click it. Use only for explicit visual interaction requests when a direct local "
+                    "control is not more appropriate."
                 ),
                 "parameters": {
                     "type": "object",
@@ -263,6 +268,18 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
                         },
                     },
                     "required": ["target"],
+                },
+            },
+            {
+                "name": "shutdown_harvis",
+                "description": (
+                    "Close the Harvis application itself. Use only when the user directly tells Harvis or Jarvis "
+                    "to shut itself down, including the Spanish command 'Jarvis apágate' or 'Jarvis apagate'. "
+                    "This must never shut down, restart, sleep, lock, or sign out of the computer."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
                 },
             },
             {
@@ -392,6 +409,7 @@ class HarvisAssistant:
         on_audio_level: Callable[[float], None] | None = None,
         on_spectrum: Callable[[list[float] | None], None] | None = None,
         on_status: Callable[[str], None] | None = None,
+        on_shutdown_requested: Callable[[], None] | None = None,
     ) -> None:
         self._settings = settings
         self._on_heard = on_heard
@@ -399,6 +417,7 @@ class HarvisAssistant:
         self._on_audio_level = on_audio_level
         self._on_spectrum = on_spectrum
         self._on_status = on_status
+        self._on_shutdown_requested = on_shutdown_requested
         self._router = IntentRouter()
 
         self._voice = HarvisGeminiLiveVoice(
@@ -474,6 +493,18 @@ class HarvisAssistant:
         self._notify_status(f"Gemini Live unavailable: {error}")
 
     def _execute_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name == "shutdown_harvis":
+            callback = self._on_shutdown_requested
+            if callback is None:
+                raise SystemActionError("Harvis self-shutdown is not available in this runtime.")
+
+            self._notify_status("Harvis shutdown requested")
+            callback()
+            return {
+                "status": "completed",
+                "application": "Harvis",
+            }
+
         if name == "set_master_volume":
             if "percent" not in arguments:
                 raise ValueError("set_master_volume requires percent.")
