@@ -1,0 +1,47 @@
+from __future__ import annotations
+
+import pytest
+
+from harvis.actions.system import SystemActionError
+from harvis.assistant import HarvisAssistant, HarvisGeminiLiveVoice
+from harvis.config import HarvisSettings
+
+
+def test_invalid_assistant_mode_falls_back_to_speaking() -> None:
+    settings = HarvisSettings(assistant_mode="Unknown").normalized()
+
+    assert settings.assistant_mode == "Speaking"
+
+
+def test_silent_mode_configures_gemini_without_voice_input() -> None:
+    voice = HarvisGeminiLiveVoice(
+        user_name="User",
+        language_tag="es-419",
+        silent_mode=True,
+        execute_tool=lambda name, arguments: {},
+    )
+
+    assert voice.silent_mode is True
+    assert "Silent mode is active" in voice._system_instruction()
+
+
+def test_silent_text_command_is_queued_without_wake_word(monkeypatch) -> None:
+    assistant = HarvisAssistant(HarvisSettings(assistant_mode="Silent"))
+    queued: list[str] = []
+
+    monkeypatch.setattr(
+        assistant._voice,
+        "send_text",
+        lambda text: queued.append(text) or True,
+    )
+
+    assistant.send_text_command("open Chrome")
+
+    assert queued == ["open Chrome"]
+
+
+def test_text_command_is_rejected_in_speaking_mode() -> None:
+    assistant = HarvisAssistant(HarvisSettings(assistant_mode="Speaking"))
+
+    with pytest.raises(SystemActionError, match="only in Silent mode"):
+        assistant.send_text_command("open Chrome")
