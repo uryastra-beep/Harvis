@@ -16,7 +16,7 @@ from harvis.actions.desktop import (
     control_media,
     open_application,
 )
-from harvis.actions.keyboard_control import press_key, type_text
+from harvis.actions.keyboard_control import press_key, type_lines, type_text
 from harvis.actions.mouse_control import scroll_view
 from harvis.actions.visual_control import move_pointer, vision_click
 from harvis.actions.system import SystemActionError
@@ -61,11 +61,14 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             f"{super()._system_instruction()} "
             "You can operate the desktop through approved tools. Prefer direct local tools for "
             "opening applications, closing applications, browser shortcuts, media controls, typing, key presses, "
-            "and scrolling. When the user asks to press Enter, always use press_key with key='enter'. Never encode "
-            "a requested keyboard key press as text such as \\n, \\r, or another escape sequence. Use type_text only "
-            "for literal content the user wants written. After pressing Enter, do not add a leading newline to the "
-            "next type_text call unless the user explicitly requested an empty line. If the user explicitly asks "
-            "for Enter more than once, use the count parameter in one press_key call. "
+            "and scrolling. When the user asks for a sequence that alternates literal text and Enter, such as "
+            "'type hello, Enter, hello, Enter, hello', use type_lines once with the exact requested text lines in "
+            "order. Do not split that pattern into several type_text and press_key calls. When the user asks to "
+            "press Enter by itself, use press_key with key='enter'. Never encode a requested keyboard key press as "
+            "text such as \\n, \\r, or another escape sequence. Use type_text only for literal content the user "
+            "wants written. After pressing Enter, do not add a leading newline to the next type_text call unless "
+            "the user explicitly requested an empty line. If the user explicitly asks for Enter more than once, "
+            "use the count parameter in one press_key call. "
             "Use scroll_view when the user asks to scroll up or down, or when scrolling is needed to reveal content "
             "before a later visual action. Use a small number of steps for a little scrolling and more steps only "
             "when the user clearly asks to move farther. "
@@ -263,10 +266,34 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
                 },
             },
             {
+                "name": "type_lines",
+                "description": (
+                    "Type an ordered sequence of literal text lines with exactly one physical Enter between "
+                    "adjacent lines. Prefer this single tool when the user asks for patterns like text, Enter, "
+                    "text, Enter, text so the sequence cannot drift across separate tool calls."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "lines": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 1,
+                            "maxItems": 50,
+                            "description": (
+                                "Literal lines in exact order. Each item is typed as text and one Enter is pressed "
+                                "between items. Do not include newline characters inside an item."
+                            ),
+                        }
+                    },
+                    "required": ["lines"],
+                },
+            },
+            {
                 "name": "press_key",
                 "description": (
                     "Press a physical keyboard key without typing a text escape sequence. "
-                    "Use this whenever the user asks to press Enter."
+                    "Use this whenever the user asks to press Enter by itself."
                 ),
                 "parameters": {
                     "type": "object",
@@ -570,6 +597,12 @@ class HarvisAssistant:
             else:
                 self._notify_status(f"Could not confidently click: {target}")
             return result
+
+        if name == "type_lines":
+            lines = arguments.get("lines", [])
+            if not isinstance(lines, list):
+                raise ValueError("type_lines requires lines as a list.")
+            return type_lines([str(line) for line in lines])
 
         if name == "press_key":
             key = str(arguments.get("key", "")).strip()
