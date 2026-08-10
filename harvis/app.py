@@ -194,6 +194,8 @@ class HarvisSettingsWindow(SettingsWindow):
             "When enabled in Speaking mode, the live visualizer reacts to Harvis's actual Gemini voice audio. "
             "Sphere mode appears as a small transparent always-on-top orb that can be dragged anywhere. "
             "Click the Sphere to mute or unmute microphone forwarding without disconnecting Gemini Live. "
+            "While Harvis is processing a request or searching for a visual target, the Sphere smoothly morphs "
+            "into a rotating loading indicator and returns when the task is ready. "
             "Silent mode replaces the visualizer with the text command popup."
         )
         live_note.setObjectName("mutedLabel")
@@ -388,6 +390,10 @@ class HarvisSettingsWindow(SettingsWindow):
         if isinstance(self._live_visualizer, (OrbPopupWindow, VisualizerWindow)):
             self._live_visualizer.set_spectrum(spectrum)
 
+    def set_live_loading(self, loading: bool) -> None:
+        if isinstance(self._live_visualizer, OrbPopupWindow):
+            self._live_visualizer.set_loading(loading)
+
     def _save_settings(self) -> None:
         selected_user_name = self.user_name.text()
         selected_language = self.speech_language.currentData()
@@ -528,15 +534,31 @@ def main() -> int:
                 window.statusBar().showMessage(status)
                 window.set_silent_status(status)
 
+                if status.startswith("Looking for on-screen target:"):
+                    window.set_live_loading(True)
+                elif status.startswith(
+                    (
+                        "Clicked on-screen target:",
+                        "Could not confidently click:",
+                        "Confirmation required before clicking:",
+                        "Gemini Live unavailable:",
+                        "Assistant stopped",
+                    )
+                ):
+                    window.set_live_loading(False)
+
             def show_heard(text: str) -> None:
                 print(f"[Harvis] Heard: {text}", flush=True)
+                window.set_live_loading(True)
 
             def show_response(text: str) -> None:
                 print(f"[Harvis] Response: {text}", flush=True)
+                window.set_live_loading(False)
                 window.set_silent_response(text)
 
             def request_shutdown() -> None:
                 print("[Harvis] Voice shutdown requested.", flush=True)
+                window.set_live_loading(False)
                 window.statusBar().showMessage("Shutting down Harvis")
                 QTimer.singleShot(250, app.quit)
 
