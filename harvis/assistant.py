@@ -440,6 +440,10 @@ class HarvisAssistant:
             on_error=self._handle_live_error,
         )
 
+    @property
+    def microphone_muted(self) -> bool:
+        return self._voice.microphone_muted
+
     def start(self) -> None:
         self._notify_status("Starting Gemini Live assistant")
         self._voice.start()
@@ -447,6 +451,18 @@ class HarvisAssistant:
     def stop(self) -> None:
         self._voice.stop()
         self._notify_status("Assistant stopped")
+
+    def toggle_microphone_muted(self) -> bool:
+        """Toggle microphone forwarding while Harvis remains connected."""
+
+        if self._settings.assistant_mode != "Speaking":
+            raise SystemActionError(
+                "Microphone mute control is available only in Speaking mode."
+            )
+
+        muted = self._voice.toggle_microphone_muted()
+        self._notify_status("Microphone muted" if muted else "Microphone active")
+        return muted
 
     def send_text_command(self, text: str) -> None:
         command = " ".join(str(text).split()).strip()
