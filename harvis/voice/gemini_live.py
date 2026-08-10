@@ -177,7 +177,7 @@ class GeminiLiveVoice:
             "speech_config": {
                 "voice_config": {
                     "prebuilt_voice_config": {
-                        "voice_name": "Kore",
+                        "voice_name": "Iapetus",
                     }
                 }
             },
