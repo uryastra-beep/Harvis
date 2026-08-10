@@ -14,7 +14,12 @@ from PySide6.QtWidgets import (
 )
 
 from harvis.assistant import HarvisAssistant
-from harvis.config import SUPPORTED_SPEECH_LANGUAGES, SettingsStore, USER_NAME_MAX_LENGTH
+from harvis.config import (
+    SUPPORTED_ASSISTANT_MODES,
+    SUPPORTED_SPEECH_LANGUAGES,
+    SettingsStore,
+    USER_NAME_MAX_LENGTH,
+)
 from harvis.credentials import (
     CredentialStoreError,
     get_gemini_api_key,
@@ -24,6 +29,7 @@ from harvis.credentials import (
 from harvis.single_instance import SingleInstanceCoordinator
 from harvis.ui.orb_popup import OrbPopupWindow
 from harvis.ui.settings_window import LiquidActionButton, SettingsWindow
+from harvis.ui.silent_popup import SilentCommandPopup
 from harvis.ui.visualizer_window import VisualizerWindow
 
 
@@ -39,11 +45,13 @@ class AssistantSignals(QObject):
 
 
 class HarvisSettingsWindow(SettingsWindow):
-    """Settings window with visualizer, language, and assistant integration."""
+    """Settings window with interaction mode and assistant integration."""
 
     def __init__(self, settings_store: SettingsStore) -> None:
         self._visualizer_preview: VisualizerWindow | None = None
-        self._live_visualizer: VisualizerWindow | OrbPopupWindow | None = None
+        self._live_visualizer: (
+            VisualizerWindow | OrbPopupWindow | SilentCommandPopup | None
+        ) = None
         self._assistant: HarvisAssistant | None = None
         super().__init__(settings_store)
 
@@ -53,6 +61,23 @@ class HarvisSettingsWindow(SettingsWindow):
     def _build_general_page(self):
         page = super()._build_general_page()
         layout = page.layout()
+
+        mode_group = self._glass_group("Interaction mode")
+        mode_form = QFormLayout(mode_group)
+        mode_form.setHorizontalSpacing(18)
+        mode_form.setVerticalSpacing(12)
+
+        self.assistant_mode = QComboBox()
+        self.assistant_mode.addItems(SUPPORTED_ASSISTANT_MODES)
+        mode_form.addRow("Mode", self.assistant_mode)
+
+        mode_note = QLabel(
+            "Speaking uses the microphone and voice output. Silent disables microphone and speaker use, "
+            "replacing the live visualizer with a compact text command popup."
+        )
+        mode_note.setObjectName("mutedLabel")
+        mode_note.setWordWrap(True)
+        mode_form.addRow(mode_note)
 
         personalization_group = self._glass_group("Personalization")
         personalization_form = QFormLayout(personalization_group)
@@ -81,7 +106,9 @@ class HarvisSettingsWindow(SettingsWindow):
         personalization_form.addRow(personalization_note)
 
         if isinstance(layout, QVBoxLayout):
-            layout.insertWidget(max(0, layout.count() - 1), personalization_group)
+            insertion_index = max(0, layout.count() - 1)
+            layout.insertWidget(insertion_index, mode_group)
+            layout.insertWidget(insertion_index + 1, personalization_group)
 
         return page
 
@@ -150,8 +177,9 @@ class HarvisSettingsWindow(SettingsWindow):
         self.visualizer_preview_button.clicked.connect(self._open_visualizer_preview)
 
         live_note = QLabel(
-            "When enabled, the live visualizer reacts to Harvis's actual Gemini voice audio. "
-            "Sphere mode appears as a small transparent always-on-top orb that can be dragged anywhere."
+            "When enabled in Speaking mode, the live visualizer reacts to Harvis's actual Gemini voice audio. "
+            "Sphere mode appears as a small transparent always-on-top orb that can be dragged anywhere. "
+            "Silent mode replaces the visualizer with the text command popup."
         )
         live_note.setObjectName("mutedLabel")
         live_note.setWordWrap(True)
@@ -170,6 +198,9 @@ class HarvisSettingsWindow(SettingsWindow):
 
     def _load_settings_into_controls(self) -> None:
         super()._load_settings_into_controls()
+
+        if hasattr(self, "assistant_mode"):
+            self.assistant_mode.setCurrentText(self._settings.assistant_mode)
 
         if hasattr(self, "user_name"):
             self.user_name.setText(self._settings.user_name)
@@ -208,6 +239,9 @@ class HarvisSettingsWindow(SettingsWindow):
         if self._live_visualizer is None:
             return False
 
+        if self._settings.assistant_mode == "Silent":
+            return isinstance(self._live_visualizer, SilentCommandPopup)
+
         wants_sphere = self._settings.visualizer_type.strip().lower() == "sphere"
         return (
             wants_sphere and isinstance(self._live_visualizer, OrbPopupWindow)
@@ -215,7 +249,16 @@ class HarvisSettingsWindow(SettingsWindow):
             not wants_sphere and isinstance(self._live_visualizer, VisualizerWindow)
         )
 
-    def _create_live_visualizer(self) -> VisualizerWindow | OrbPopupWindow:
+    def _create_live_visualizer(
+        self,
+    ) -> VisualizerWindow | OrbPopupWindow | SilentCommandPopup:
+        if self._settings.assistant_mode == "Silent":
+            popup = SilentCommandPopup()
+            popup.command_submitted.connect(self._submit_silent_command)
+            popup.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+            popup.destroyed.connect(self._clear_live_visualizer)
+            return popup
+
         if self._settings.visualizer_type.strip().lower() == "sphere":
             visualizer: VisualizerWindow | OrbPopupWindow = OrbPopupWindow(
                 sensitivity=self._settings.visualizer_sensitivity,
@@ -233,7 +276,15 @@ class HarvisSettingsWindow(SettingsWindow):
         return visualizer
 
     def sync_live_visualizer(self) -> None:
-        if self._assistant is None or not self._settings.visualizer_enabled:
+        if self._assistant is None:
+            if self._live_visualizer is not None:
+                self._live_visualizer.close()
+            return
+
+        if (
+            self._settings.assistant_mode != "Silent"
+            and not self._settings.visualizer_enabled
+        ):
             if self._live_visualizer is not None:
                 self._live_visualizer.close()
             return
@@ -243,6 +294,12 @@ class HarvisSettingsWindow(SettingsWindow):
                 self._live_visualizer.close()
             self._live_visualizer = self._create_live_visualizer()
 
+        if isinstance(self._live_visualizer, SilentCommandPopup):
+            self._live_visualizer.show()
+            self._live_visualizer.raise_()
+            self._live_visualizer.focus_command_input()
+            return
+
         self._live_visualizer.set_sensitivity(
             self._settings.visualizer_sensitivity
         )
@@ -250,17 +307,40 @@ class HarvisSettingsWindow(SettingsWindow):
         self._live_visualizer.show()
         self._live_visualizer.raise_()
 
+    def _submit_silent_command(self, text: str) -> None:
+        popup = self._live_visualizer
+        if self._assistant is None or not isinstance(popup, SilentCommandPopup):
+            return
+
+        try:
+            self._assistant.send_text_command(text)
+        except Exception as exc:
+            popup.set_response(f"Could not send command: {exc}")
+
+    def set_silent_response(self, text: str) -> None:
+        if isinstance(self._live_visualizer, SilentCommandPopup):
+            self._live_visualizer.set_response(text)
+
+    def set_silent_status(self, status: str) -> None:
+        if isinstance(self._live_visualizer, SilentCommandPopup):
+            self._live_visualizer.set_status(status)
+
+    def focus_silent_popup(self) -> None:
+        if isinstance(self._live_visualizer, SilentCommandPopup):
+            self._live_visualizer.focus_command_input()
+
     def set_live_audio_level(self, level: float) -> None:
-        if self._live_visualizer is not None:
-            self._live_visualizer.set_audio_level(level)
+        if isinstance(self._live_visualizer, (VisualVisualizerWindowPlaceholder,)):
+            pass
 
     def set_live_spectrum(self, spectrum) -> None:
-        if self._live_visualizer is not None:
+        if isinstance(self._live_visualizer, (OrbPopupWindow, VisualizerWindow)):
             self._live_visualizer.set_spectrum(spectrum)
 
     def _save_settings(self) -> None:
         selected_user_name = self.user_name.text()
         selected_language = self.speech_language.currentData()
+        selected_mode = self.assistant_mode.currentText()
         pending_api_key = self.gemini_api_key.text().strip()
         api_key_changed = False
 
@@ -280,16 +360,18 @@ class HarvisSettingsWindow(SettingsWindow):
         super()._save_settings()
 
         self._settings.user_name = selected_user_name
+        self._settings.assistant_mode = selected_mode
         if isinstance(selected_language, str) and selected_language:
             self._settings.speech_language = selected_language
         self._settings_store.save(self._settings)
         self.user_name.setText(self._settings.user_name)
+        self.assistant_mode.setCurrentText(self._settings.assistant_mode)
 
         if self._assistant is not None:
             if api_key_changed:
                 self._assistant.stop()
             self._assistant.apply_settings(self._settings)
-            if api_key_changed:
+            if api_key_changed and not self._assistant._voice.is_running:
                 self._assistant.start()
 
         self.sync_live_visualizer()
@@ -337,6 +419,8 @@ def _activate_window(window) -> None:
         window.show()
     window.raise_()
     window.activateWindow()
+    if hasattr(window, "focus_silent_popup"):
+        window.focus_silent_popup()
 
 
 def main() -> int:
@@ -385,12 +469,14 @@ def main() -> int:
             def show_status(status: str) -> None:
                 print(f"[Harvis] {status}", flush=True)
                 window.statusBar().showMessage(status)
+                window.set_silent_status(status)
 
             def show_heard(text: str) -> None:
                 print(f"[Harvis] Heard: {text}", flush=True)
 
             def show_response(text: str) -> None:
                 print(f"[Harvis] Response: {text}", flush=True)
+                window.set_silent_response(text)
 
             def request_shutdown() -> None:
                 print("[Harvis] Voice shutdown requested.", flush=True)
