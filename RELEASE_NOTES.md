@@ -12,6 +12,7 @@ Harvis is a Python desktop personal assistant that combines Gemini Live conversa
 - Automatic Gemini Live reconnection after idle or server-side connection rotation, with session resumption when a resumable handle is available.
 - Context-window compression for longer-running Live sessions.
 - Multi-step task orchestration for long single-instruction desktop workflows.
+- Automatic screen-stability and visible-target readiness guards for workflows with more than two steps.
 - Speaking mode for microphone and voice interaction.
 - Silent mode with a compact transparent text-command popup and no microphone or speaker streams.
 - Secure Gemini API key storage from Settings.
@@ -35,9 +36,15 @@ Harvis now includes an `execute_action_plan` tool backed by a local task-orchest
 
 Plans are validated completely before execution and are bounded to 24 steps. They can include application open or close actions, URLs, volume changes, browser and media controls, pointer movement, scrolling, visual clicks, typing, physical Enter presses, and short waits for UI transitions.
 
-Wait steps are capped at 5 seconds each and 15 seconds total per plan. Harvis self-shutdown cannot be placed inside a plan.
+When a plan contains more than two steps, Harvis now treats it as a guarded long workflow. After UI-changing actions, Harvis samples the visible desktop and waits for the screen to settle before allowing the next step to run. Short one-step and two-step plans do not receive these extra readiness checks.
 
-The orchestrator stops instead of continuing blindly when an action fails, a visual target is missing or low-confidence, Gemini Vision is unavailable for the required visual step, or a sensitive visual action requires confirmation. Dynamic workflows whose later steps depend on a newly observed UI state can use the plan for the deterministic prefix and then continue with individual tools.
+A step can also declare a `ready_target` when it must wait for a specific visible button, field, icon, text label, or UI state. Harvis keeps checking for the target for a bounded period and stops the remaining plan if it never becomes confidently visible. `vision_click` steps automatically use their own click target as a readiness checkpoint, so Harvis will not attempt the click until the requested target has appeared.
+
+Screen-stability checks default to a bounded six-second window. Visible readiness targets default to ten seconds and can be configured up to fifteen seconds. These checks are intentionally fail-safe: an unavailable screen capture, a screen that never settles, a missing target, or a low-confidence target stops the workflow instead of letting later steps run against the wrong UI.
+
+Explicit wait steps are still capped at 5 seconds each and 15 seconds total per plan. Harvis self-shutdown cannot be placed inside a plan.
+
+The orchestrator also stops when an action fails, Gemini Vision is unavailable for a required visual step, or a sensitive visual action requires confirmation. Dynamic workflows whose later steps depend on an unknown newly observed UI state can use the plan for the deterministic prefix and then continue with individual tools.
 
 ### Gemini Live session recovery
 
@@ -99,7 +106,8 @@ After setup, `START_HARVIS.vbs` can launch Harvis without leaving a terminal win
 
 - A Gemini API key is required for Gemini Live and Gemini Vision.
 - Cloud features are subject to the limits of the configured Google API project.
-- Multi-step plans intentionally stop on uncertainty or confirmation-required visual actions rather than guessing through unknown UI states.
+- Multi-step plans intentionally stop on screen-readiness failures, missing targets, uncertainty, or confirmation-required visual actions rather than guessing through unknown UI states.
+- Screen-stability detection is a visual heuristic; highly animated desktops may take longer to be considered settled or may stop a guarded plan safely.
 - Windows is currently the most heavily tested platform.
 - Linux support is present for several system integrations, but some desktop-control features still depend on X11-compatible tools and are not fully Wayland-ready.
 - No packaged installer or signed executable is currently included.
