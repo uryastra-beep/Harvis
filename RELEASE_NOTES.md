@@ -33,7 +33,7 @@ Harvis is a Python desktop personal assistant that combines Gemini Live conversa
 
 ### Mobile remote control
 
-Settings > General now includes a `Mobile remote control` group. When enabled, Harvis serves a responsive controller to devices on the same local network and shows both the phone URL and a six-digit pairing code inside the Settings window.
+Settings > Advanced now includes a `Mobile remote control` group. When enabled, Harvis serves a responsive controller to devices on the same local network and shows both the phone URL and a six-digit pairing code inside the Settings window.
 
 The paired phone page can send text commands to the active Gemini Live assistant in either Speaking or Silent mode, read the latest Harvis status and response transcript, and mute or unmute microphone forwarding while Harvis is in Speaking mode.
 
@@ -113,7 +113,7 @@ python -m harvis
 
 After setup, `START_HARVIS.vbs` can launch Harvis without leaving a terminal window visible.
 
-To use the mobile controller, enable it in Settings > General, save settings, then open the displayed phone URL from a device on the same trusted local network and enter the displayed pairing code.
+To use the mobile controller, enable it in Settings > Advanced, save settings, then open the displayed phone URL from a device on the same trusted local network and enter the displayed pairing code.
 
 ### Important notes
 
