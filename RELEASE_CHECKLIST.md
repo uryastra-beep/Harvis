@@ -91,7 +91,14 @@ Use harmless deterministic workflows for these checks:
 
 - [ ] Give Harvis one long instruction containing at least three ordered computer actions and confirm it can execute the sequence as one task plan.
 - [ ] Confirm actions run in the same order requested by the user.
-- [ ] Include a short wait between two actions and confirm the workflow resumes afterward.
+- [ ] Confirm a plan with more than two steps performs screen-readiness checks between UI-changing actions.
+- [ ] Confirm a long plan waits while a newly opened application or page is still visually changing instead of immediately running the next UI-dependent action.
+- [ ] Add a `ready_target` to a non-click step and confirm Harvis does not run that step until the requested visible field, button, icon, text label, or UI state is found.
+- [ ] Confirm a `vision_click` step automatically waits for its own target before attempting the click even when `ready_target` is omitted.
+- [ ] Confirm a missing readiness target stops the remaining workflow before the dependent step runs.
+- [ ] Confirm a screen that never becomes stable stops the remaining workflow instead of continuing blindly.
+- [ ] Confirm a one-step or two-step action plan does not add the long-workflow screen-readiness checks.
+- [ ] Include a short explicit wait between two actions and confirm the workflow resumes afterward.
 - [ ] Confirm a plan can combine representative actions such as opening an app, typing text, pressing Enter, and performing another approved local action.
 - [ ] Confirm an invalid plan is rejected before its first action runs.
 - [ ] Confirm a plan stops if a step raises an error instead of continuing into later actions.
