@@ -4,7 +4,7 @@
 
 ## Harvis vX.Y.Z
 
-Harvis is a Python desktop personal assistant that combines Gemini Live conversation with approved local computer-control tools, visual interaction, configurable Speaking and Silent modes, and optional audio-reactive visualizers.
+Harvis is a Python desktop personal assistant that combines Gemini Live conversation with approved local computer-control tools, visual interaction, configurable Speaking and Silent modes, optional audio-reactive visualizers, and paired mobile control over the local network.
 
 ### Highlights
 
@@ -13,6 +13,7 @@ Harvis is a Python desktop personal assistant that combines Gemini Live conversa
 - Context-window compression for longer-running Live sessions.
 - Multi-step task orchestration for long single-instruction desktop workflows.
 - Automatic screen-stability and visible-target readiness guards for workflows with more than two steps.
+- Paired mobile remote control from a phone browser on the same trusted local network.
 - Speaking mode for microphone and voice interaction.
 - Silent mode with a compact transparent text-command popup and no microphone or speaker streams.
 - Secure Gemini API key storage from Settings.
@@ -30,13 +31,23 @@ Harvis is a Python desktop personal assistant that combines Gemini Live conversa
 - Improved Unicode typing and explicit physical Enter handling.
 - Cleaner Gemini Live startup, shutdown, latency, and reconnect behavior.
 
+### Mobile remote control
+
+Settings > General now includes a `Mobile remote control` group. When enabled, Harvis serves a responsive controller to devices on the same local network and shows both the phone URL and a six-digit pairing code inside the Settings window.
+
+The paired phone page can send text commands to the active Gemini Live assistant in either Speaking or Silent mode, read the latest Harvis status and response transcript, and mute or unmute microphone forwarding while Harvis is in Speaking mode.
+
+Pairing returns a random browser token. The pairing code and browser token are regenerated whenever the remote server restarts, including when Harvis restarts or the configured LAN port changes. Repeated incorrect pairing attempts are rate-limited.
+
+The server accepts only private, loopback, or link-local client addresses. It is intended for trusted local networks and does not require Internet port forwarding. The current controller uses local HTTP rather than TLS, so it must not be exposed to public or untrusted networks.
+
 ### Multi-step task orchestration
 
-Harvis now includes an `execute_action_plan` tool backed by a local task-orchestration layer. Gemini can convert one long user instruction into an ordered plan of approved actions instead of relying on a loose sequence of independent function calls.
+Harvis includes an `execute_action_plan` tool backed by a local task-orchestration layer. Gemini can convert one long user instruction into an ordered plan of approved actions instead of relying on a loose sequence of independent function calls.
 
 Plans are validated completely before execution and are bounded to 24 steps. They can include application open or close actions, URLs, volume changes, browser and media controls, pointer movement, scrolling, visual clicks, typing, physical Enter presses, and short waits for UI transitions.
 
-When a plan contains more than two steps, Harvis now treats it as a guarded long workflow. After UI-changing actions, Harvis samples the visible desktop and waits for the screen to settle before allowing the next step to run. Short one-step and two-step plans do not receive these extra readiness checks.
+When a plan contains more than two steps, Harvis treats it as a guarded long workflow. After UI-changing actions, Harvis samples the visible desktop and waits for the screen to settle before allowing the next step to run. Short one-step and two-step plans do not receive these extra readiness checks.
 
 A step can also declare a `ready_target` when it must wait for a specific visible button, field, icon, text label, or UI state. Harvis keeps checking for the target for a bounded period and stops the remaining plan if it never becomes confidently visible. `vision_click` steps automatically use their own click target as a readiness checkpoint, so Harvis will not attempt the click until the requested target has appeared.
 
@@ -48,7 +59,7 @@ The orchestrator also stops when an action fails, Gemini Vision is unavailable f
 
 ### Gemini Live session recovery
 
-Harvis now enables Gemini Live session resumption and context-window compression. If a long-running Live connection is rotated or drops after Harvis has been idle, Harvis keeps the desktop process alive and attempts to reconnect with bounded exponential backoff instead of leaving the assistant permanently unresponsive.
+Harvis enables Gemini Live session resumption and context-window compression. If a long-running Live connection is rotated or drops after Harvis has been idle, Harvis keeps the desktop process alive and attempts to reconnect with bounded exponential backoff instead of leaving the assistant permanently unresponsive.
 
 When Gemini provides a resumable session handle, Harvis reuses the latest valid handle on the next connection so conversational state can continue across the WebSocket rotation. Reconnects do not replay the normal startup greeting. Typed Silent-mode commands that fail during transport are returned to the local queue for a retry after reconnection.
 
@@ -58,7 +69,7 @@ After repeated rapid reconnect failures, Harvis stops retrying and surfaces an u
 
 In Speaking mode, a short click on the live Sphere toggles microphone forwarding. Harvis keeps the Gemini Live session connected and leaves the audio stream open, so unmuting is immediate.
 
-Dragging the Sphere continues to reposition it without toggling the microphone. While muted, the Sphere displays a diagonal tertiary-color indicator.
+Dragging the Sphere continues to reposition it without toggling the microphone. While muted, the Sphere displays a diagonal tertiary-color indicator. The same microphone state can now be toggled from an authenticated mobile remote.
 
 ### Sphere loading state
 
@@ -74,7 +85,7 @@ When `AI watermark` is enabled in Settings > AI, Harvis prefixes AI-authored con
 #G6m2i9 
 ```
 
-The watermark is intended for written content that Harvis authors. It is not added to search queries, URLs, browser navigation, or similar operational text entry.
+The watermark is intended for written content that Harvis authors. It is not added to search queries, URLs, browser navigation, or similar operational text entry. Mobile commands use the same local watermark-intent path as other text instructions.
 
 ### Visual fallback behavior
 
@@ -102,12 +113,15 @@ python -m harvis
 
 After setup, `START_HARVIS.vbs` can launch Harvis without leaving a terminal window visible.
 
+To use the mobile controller, enable it in Settings > General, save settings, then open the displayed phone URL from a device on the same trusted local network and enter the displayed pairing code.
+
 ### Important notes
 
 - A Gemini API key is required for Gemini Live and Gemini Vision.
 - Cloud features are subject to the limits of the configured Google API project.
 - Multi-step plans intentionally stop on screen-readiness failures, missing targets, uncertainty, or confirmation-required visual actions rather than guessing through unknown UI states.
 - Screen-stability detection is a visual heuristic; highly animated desktops may take longer to be considered settled or may stop a guarded plan safely.
+- Mobile remote control is LAN-only and currently uses HTTP rather than TLS. Do not expose its port to the public Internet or use it on an untrusted network.
 - Windows is currently the most heavily tested platform.
 - Linux support is present for several system integrations, but some desktop-control features still depend on X11-compatible tools and are not fully Wayland-ready.
 - No packaged installer or signed executable is currently included.
