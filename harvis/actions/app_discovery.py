@@ -64,7 +64,7 @@ def close_discovered_application(name: str) -> dict[str, Any]:
 
 def _normalize_name(value: str) -> str:
     text = str(value).strip().casefold()
-    text = re.sub(r"[^\w]+", " ", text, flags=re.UNICODE)
+    text = re.sub(r"[_\W]+", " ", text, flags=re.UNICODE)
     return " ".join(text.split())
 
 
