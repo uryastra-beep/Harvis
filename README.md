@@ -1,8 +1,10 @@
 # Harvis
 
-Harvis is a cross-platform desktop personal assistant built in Python. It combines real-time Gemini Live conversation, local computer control, visual interaction, configurable voice and silent modes, optional audio-reactive visualizers, and paired mobile control over the local network.
+Harvis is a cross-platform desktop personal assistant built in Python. It combines real-time Gemini Live conversation, local computer control, visual interaction, guarded multi-step task execution, configurable Speaking and Silent modes, optional audio-reactive visualizers, and paired mobile control over a trusted local network.
 
-The project currently focuses on Windows while keeping the architecture portable to Linux wherever the underlying system integrations allow it.
+The project currently targets Windows most strongly while keeping the architecture portable to Linux wherever the underlying system integrations allow it.
+
+> **Development status:** this README documents the current `main` branch, including features that may not yet exist in a published release.
 
 ## Highlights
 
@@ -13,8 +15,10 @@ The project currently focuses on Windows while keeping the architecture portable
 - Multi-step task orchestration for long single-instruction workflows.
 - Automatic screen-stability and visible-target readiness guards for workflows with more than two steps.
 - Paired mobile remote control over the local network.
+- Selectable Harvis voice routing: computer only, phone only, or phone and computer together.
+- Authenticated phone-side playback of the same native Gemini Live audio used by the desktop assistant.
 - Application discovery and launch support.
-- Browser, media, volume, keyboard, mouse, scrolling, and self-shutdown actions.
+- Browser, media, volume, keyboard, mouse, scrolling, and Harvis self-shutdown actions.
 - Visual clicking with Gemini Vision plus a local fallback stack.
 - Sensitive visual actions require confirmation before clicking.
 - Secure Gemini API key storage from the Settings UI.
@@ -65,22 +69,79 @@ The Silent popup intentionally hides detailed visual target names while Harvis i
 
 ## Mobile remote control
 
-Harvis can expose a small responsive controller to phones and tablets on the same local network. The feature is disabled by default.
+Harvis can expose a responsive controller to phones and tablets on the same trusted local network. The feature is disabled by default.
 
-To enable it:
+### Enable the remote
 
-1. Open Settings > Advanced.
+1. Open `Settings > Advanced`.
 2. Set `Remote control` to `On`.
 3. Keep the default LAN port or choose another port between 1024 and 65535.
 4. Save settings.
 5. Open the displayed `Phone URL` on a phone connected to the same local network.
 6. Enter the six-digit pairing code shown in Harvis Settings.
 
-The mobile page can send text commands to the same Gemini Live assistant in either Speaking or Silent mode, display the latest Harvis status and response, and mute or unmute microphone forwarding while Harvis is in Speaking mode.
+The mobile page can:
 
-Pairing returns a random browser token that is stored by that browser. The pairing code and browser token are replaced whenever the remote server restarts, including when the port changes or Harvis is restarted. Repeated incorrect pairing attempts are rate-limited.
+- Send text commands to the same Gemini Live assistant in either Speaking or Silent mode.
+- Display the latest Harvis status and response.
+- Mute or unmute microphone forwarding while Harvis is in Speaking mode.
+- Select where Harvis voice audio is played.
+- Play Harvis voice directly through the paired phone.
+
+### Voice output routing
+
+The mobile controller includes a `Voice output` selector with three targets:
+
+- `Computer only` - native Gemini Live audio is played only by the computer.
+- `Phone only` - the computer stays quiet and the paired phone plays Harvis voice.
+- `Phone + computer` - the same Harvis voice is played by both devices.
+
+Phone playback uses the actual 24 kHz mono PCM16 audio received from Gemini Live. It does not generate a second browser TTS voice.
+
+Mobile browsers can require a user gesture before audio playback is allowed. When necessary, the remote displays an `Enable phone speaker` button that must be tapped once before phone playback can begin.
+
+If the remote server stops or Harvis shuts down, audio routing is restored to `Computer only` so the desktop assistant is not accidentally left without local voice output.
+
+### Pairing and local-network security
+
+Pairing returns a random browser token stored by that browser. The pairing code and browser token are replaced whenever the remote server restarts, including when the port changes or Harvis is restarted. Repeated incorrect pairing attempts are rate-limited.
+
+Remote commands, status, microphone control, voice-output changes, and phone audio retrieval require the authenticated browser token.
 
 The remote server accepts only private, loopback, or link-local client addresses and is intended for trusted local networks. It does not require Internet port forwarding, and port forwarding is not recommended. The current local controller uses HTTP rather than TLS, so it should not be exposed to public or untrusted networks.
+
+### Windows firewall setup
+
+On Windows, Harvis can be reachable on the computer itself while still being blocked from another device by the Windows network profile or firewall.
+
+The Wi-Fi network should normally be marked `Private` before exposing the Harvis LAN port:
+
+```powershell
+Get-NetConnectionProfile -InterfaceAlias "Wi-Fi"
+```
+
+If the network is trusted and currently shows `Public`, run an elevated PowerShell window and change it to Private:
+
+```powershell
+Set-NetConnectionProfile -InterfaceAlias "Wi-Fi" -NetworkCategory Private
+```
+
+Then allow the Harvis remote port from the local subnet only. The default port is `8765`:
+
+```powershell
+New-NetFirewallRule `
+  -DisplayName "Harvis Remote" `
+  -Direction Inbound `
+  -Protocol TCP `
+  -LocalPort 8765 `
+  -Action Allow `
+  -Profile Private `
+  -RemoteAddress LocalSubnet
+```
+
+If a custom Harvis remote port is configured, use that port instead of `8765`.
+
+The phone and computer must be able to reach each other on the LAN. Guest Wi-Fi, AP isolation, client isolation, VPN routing, or similar network features can prevent the remote from connecting even when both devices appear to be on the same Wi-Fi network.
 
 ## Computer control
 
@@ -102,19 +163,19 @@ Harvis self-shutdown only closes Harvis. It does not shut down, restart, sleep, 
 
 ## Multi-step task orchestration
 
-Harvis includes a bounded task-orchestration layer for long requests that contain several ordered computer actions. Gemini can turn one instruction into a single `execute_action_plan` call instead of improvising a loose chain of unrelated tool calls. The tool declaration explicitly asks Gemini to use this path whenever a request contains more than two ordered desktop actions.
+Harvis includes a bounded task-orchestration layer for long requests that contain several ordered computer actions. Gemini can turn one instruction into a single `execute_action_plan` call instead of improvising a loose chain of unrelated tool calls. The tool declaration asks Gemini to use this path whenever a request contains more than two ordered desktop actions.
 
 The orchestrator validates the complete plan before the first action runs, preserves the requested order, and can execute up to 24 approved steps. Supported plan actions include application launching and closing, URLs, volume changes, browser and media controls, pointer movement, scrolling, typing, physical Enter presses, visual clicks, and short waits for an application or page to settle.
 
 Plans with more than two steps are guarded automatically. After actions that can change the visible UI, Harvis repeatedly samples the desktop and waits for the screen to become visually stable before the next step is allowed to run. One-step and two-step plans intentionally skip these additional checks so short commands remain responsive.
 
-A step can include `ready_target` when it depends on a specific visible button, field, icon, text label, or UI state. Harvis waits until that target can be located confidently before it runs the dependent step. `vision_click` steps receive this protection automatically using their own click target, even when `ready_target` is omitted. If the screen never becomes stable, the requested target does not appear, target confidence stays too low, or vision becomes unavailable, Harvis stops the remaining plan instead of continuing against an unknown UI state.
+A step can include `ready_target` when it depends on a specific visible button, field, icon, text label, or UI state. Harvis waits until that target can be located confidently before it runs the dependent step. `vision_click` steps receive this protection automatically using their own click target, even when `ready_target` is omitted.
+
+If the screen never becomes stable, the requested target does not appear, target confidence stays too low, or vision becomes unavailable, Harvis stops the remaining plan instead of continuing against an unknown UI state.
 
 Screen-stability checks use a bounded six-second window by default. Visible readiness targets use a ten-second default and can be configured up to fifteen seconds per checkpoint. Explicit `wait` steps remain bounded to 5 seconds each and 15 seconds total per plan. Harvis self-shutdown is not allowed inside an action plan.
 
 The plan also stops safely when a step raises an error or a visual action requires explicit confirmation. Workflows whose next action depends on an unknown new screen state should use the deterministic plan only for the predictable prefix, then continue with individual tools after observing the returned state.
-
-This layer is meant for requests such as opening an application, waiting for it to become ready, confirming that the expected editor or button is visible, typing several pieces of content, pressing Enter, changing another setting, and continuing through a known ordered sequence from one user instruction.
 
 ## Visual interaction
 
@@ -141,7 +202,7 @@ Gemini Vision
                     |
                     +-- confident match --> coordinates --> click
                     |
-                    +-- miss --> could not find target
+                    +-- miss --> safe failure
 ```
 
 The local locator combines several sources of evidence, including accessibility information, local text or location evidence, OpenCV matching, and visual heuristics. It does not perform random low-confidence clicks.
@@ -150,7 +211,7 @@ Consequential or destructive visual targets require explicit confirmation before
 
 ## AI authorship watermark
 
-Settings > AI includes an optional `AI watermark` toggle.
+`Settings > AI` includes an optional `AI watermark` toggle.
 
 When enabled, Harvis can prefix AI-authored written content with:
 
@@ -172,7 +233,7 @@ This keeps the marker useful as a lightweight authorship identifier without cont
 
 ## Gemini API key storage
 
-Harvis supports entering the Gemini API key directly in Settings > AI.
+Harvis supports entering the Gemini API key directly in `Settings > AI`.
 
 On Windows, the key is stored in Windows Credential Manager under the Harvis credential target. On Linux, Harvis stores it in a user-only configuration file and attempts to apply restrictive filesystem permissions.
 
@@ -180,7 +241,7 @@ Harvis can also fall back to the `GEMINI_API_KEY` environment variable.
 
 The API key is never written to `settings.json` or intended to be committed to the repository.
 
-## Voice architecture
+## Voice and remote architecture
 
 ```text
 Speaking mode
@@ -195,9 +256,15 @@ Microphone
     v
 Gemini Live
     |
-    +--> Native audio response --> Speakers
-    |                         |
-    |                         +--> RMS + spectrum analysis --> Visualizer
+    +--> Native 24 kHz PCM16 response
+    |       |
+    |       +--> Computer only --> desktop speakers
+    |       |
+    |       +--> Phone only --> authenticated LAN audio buffer --> phone browser
+    |       |
+    |       +--> Phone + computer --> both outputs
+    |       |
+    |       +--> RMS + spectrum analysis --> visualizer
     |
     +--> Function call --> Harvis local tool --> Windows / Linux
     |
@@ -220,14 +287,20 @@ Mobile remote
 
 Phone browser on trusted LAN
     |
-    +--> pairing code --> temporary browser token
+    +--> six-digit pairing code --> temporary browser token
     |
     +--> text command --> Gemini Live --> Harvis tools / task orchestrator
     |
     +--> authenticated status polling --> latest Harvis state and response
+    |
+    +--> authenticated microphone control
+    |
+    +--> authenticated audio-output selection
+    |
+    +--> authenticated PCM audio polling --> phone speaker
 ```
 
-Gemini Live uses 16-bit PCM audio. Harvis currently uses a 16 kHz microphone stream and 24 kHz playback stream in Speaking mode.
+Gemini Live uses 16-bit PCM audio. Harvis currently uses a 16 kHz microphone stream and a 24 kHz playback stream in Speaking mode.
 
 Harvis also enables Live session resumption and context-window compression. When the service rotates or drops a long-running WebSocket connection, Harvis attempts to reconnect with the latest resumable handle and bounded exponential backoff instead of leaving the desktop assistant permanently unresponsive. Internal reconnects do not replay the normal startup greeting.
 
@@ -249,6 +322,8 @@ Harvis currently stores persistent settings for:
 - Mobile remote control enabled state.
 - Mobile remote LAN port.
 
+The mobile voice-output target is intentionally runtime state rather than a persistent desktop setting. The remote returns to `Computer only` when the server stops.
+
 Supported preferred response languages currently include:
 
 - Spanish (Latin America) (`es-419`)
@@ -267,6 +342,7 @@ Gemini Live can still understand multiple languages. The configured language act
 - Windows 10/11 for the primary current desktop target.
 - On Linux, the required system utilities for the feature being used.
 - A trusted local network when using mobile remote control.
+- A modern phone browser with Web Audio support for phone-side voice playback.
 
 Python dependencies are listed in `requirements.txt`.
 
@@ -352,7 +428,7 @@ Run the test suite with:
 python -m pytest
 ```
 
-The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, guarded long-workflow readiness, paired mobile remote control, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
+The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, guarded long-workflow readiness, paired mobile remote control, mobile voice routing, authenticated remote audio retrieval, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
 
 ## Current limitations
 
@@ -361,13 +437,17 @@ The repository includes tests for settings, Gemini Live lifecycle safeguards and
 - Screen-stability detection is a visual heuristic, so highly animated desktops can take longer to settle or can stop a guarded plan safely.
 - Local visual detection is a fallback and cannot guarantee recognition of every interface.
 - Mobile remote control is LAN-only and currently uses HTTP rather than TLS, so it should be used only on a trusted private network and never exposed through public port forwarding.
+- Phone voice playback currently uses short authenticated PCM polling rather than a dedicated low-latency streaming transport, so latency depends on the LAN, browser, and device scheduling.
+- Mobile browsers can suspend Web Audio when the page is backgrounded or require a user gesture before playback.
 - Some Linux desktop-control features depend on X11-compatible tools such as `xdotool`; Wayland support is not complete.
 - Windows is currently the most heavily tested platform.
 - A packaged installer or signed executable is not currently part of the repository release process.
 
 ## Release preparation
 
-See `RELEASE_CHECKLIST.md` for the final manual checks and `RELEASE_NOTES.md` for a ready-to-edit release description.
+This README describes the current development state even when the latest features have not yet been published in a GitHub release.
+
+See `RELEASE_CHECKLIST.md` for final manual checks and `RELEASE_NOTES.md` for the current release-description draft.
 
 ## License
 
