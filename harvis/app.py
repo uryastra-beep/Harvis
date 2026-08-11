@@ -10,12 +10,14 @@ from PySide6.QtWidgets import (
     QFormLayout,
     QLabel,
     QLineEdit,
+    QSpinBox,
     QVBoxLayout,
 )
 
 from harvis.actions.keyboard_control import set_ai_watermark_enabled
-from harvis.assistant import HarvisAssistant
 from harvis.config import (
+    REMOTE_CONTROL_PORT_MAX,
+    REMOTE_CONTROL_PORT_MIN,
     SUPPORTED_ASSISTANT_MODES,
     SUPPORTED_SPEECH_LANGUAGES,
     SettingsStore,
@@ -27,6 +29,8 @@ from harvis.credentials import (
     save_gemini_api_key,
     sync_gemini_api_key_environment,
 )
+from harvis.remote_assistant import RemoteCapableHarvisAssistant
+from harvis.remote_control import RemoteControlServer
 from harvis.single_instance import SingleInstanceCoordinator
 from harvis.ui.orb_popup import OrbPopupWindow
 from harvis.ui.settings_window import LiquidActionButton, SettingsWindow
@@ -53,12 +57,17 @@ class HarvisSettingsWindow(SettingsWindow):
         self._live_visualizer: (
             VisualizerWindow | OrbPopupWindow | SilentCommandPopup | None
         ) = None
-        self._assistant: HarvisAssistant | None = None
+        self._assistant: RemoteCapableHarvisAssistant | None = None
+        self._remote_server: RemoteControlServer | None = None
         super().__init__(settings_store)
         set_ai_watermark_enabled(self._settings.ai_watermark_enabled)
 
-    def set_assistant(self, assistant: HarvisAssistant) -> None:
+    def set_assistant(self, assistant: RemoteCapableHarvisAssistant) -> None:
         self._assistant = assistant
+
+    def set_remote_server(self, remote_server: RemoteControlServer) -> None:
+        self._remote_server = remote_server
+        self._refresh_remote_control_info()
 
     def _build_general_page(self):
         page = super()._build_general_page()
@@ -107,10 +116,46 @@ class HarvisSettingsWindow(SettingsWindow):
         personalization_note.setWordWrap(True)
         personalization_form.addRow(personalization_note)
 
+        remote_group = self._glass_group("Mobile remote control")
+        remote_form = QFormLayout(remote_group)
+        remote_form.setHorizontalSpacing(18)
+        remote_form.setVerticalSpacing(12)
+
+        self.remote_control_enabled = QComboBox()
+        self.remote_control_enabled.addItems(("Off", "On"))
+        remote_form.addRow("Remote control", self.remote_control_enabled)
+
+        self.remote_control_port = QSpinBox()
+        self.remote_control_port.setRange(
+            REMOTE_CONTROL_PORT_MIN,
+            REMOTE_CONTROL_PORT_MAX,
+        )
+        remote_form.addRow("LAN port", self.remote_control_port)
+
+        self.remote_control_url = QLabel("Remote control is off.")
+        self.remote_control_url.setObjectName("mutedLabel")
+        self.remote_control_url.setWordWrap(True)
+        remote_form.addRow("Phone URL", self.remote_control_url)
+
+        self.remote_pairing_code = QLabel("Enable remote control and save settings to generate a code.")
+        self.remote_pairing_code.setObjectName("mutedLabel")
+        self.remote_pairing_code.setWordWrap(True)
+        remote_form.addRow("Pairing code", self.remote_pairing_code)
+
+        remote_note = QLabel(
+            "The mobile controller is served only on the local network. Pairing uses a six-digit code shown here, "
+            "and the browser token is replaced whenever the remote server restarts. No Internet port forwarding is "
+            "required or recommended."
+        )
+        remote_note.setObjectName("mutedLabel")
+        remote_note.setWordWrap(True)
+        remote_form.addRow(remote_note)
+
         if isinstance(layout, QVBoxLayout):
             insertion_index = max(0, layout.count() - 1)
             layout.insertWidget(insertion_index, mode_group)
             layout.insertWidget(insertion_index + 1, personalization_group)
+            layout.insertWidget(insertion_index + 2, remote_group)
 
         return page
 
@@ -232,7 +277,58 @@ class HarvisSettingsWindow(SettingsWindow):
                 "On" if self._settings.ai_watermark_enabled else "Off"
             )
 
+        if hasattr(self, "remote_control_enabled"):
+            self.remote_control_enabled.setCurrentText(
+                "On" if self._settings.remote_control_enabled else "Off"
+            )
+
+        if hasattr(self, "remote_control_port"):
+            self.remote_control_port.setValue(self._settings.remote_control_port)
+
         self._refresh_gemini_api_key_status()
+        self._refresh_remote_control_info()
+
+    def _refresh_remote_control_info(self) -> None:
+        if not hasattr(self, "remote_control_url") or not hasattr(self, "remote_pairing_code"):
+            return
+
+        server = self._remote_server
+        if server is None or not server.is_running:
+            self.remote_control_url.setText("Remote control is off.")
+            self.remote_pairing_code.setText(
+                "Enable remote control and save settings to generate a code."
+            )
+            return
+
+        self.remote_control_url.setText(server.url)
+        self.remote_pairing_code.setText(server.pairing_code)
+
+    def sync_remote_control(self) -> None:
+        server = self._remote_server
+        if server is None:
+            self._refresh_remote_control_info()
+            return
+
+        if not self._settings.remote_control_enabled:
+            server.stop()
+            self._refresh_remote_control_info()
+            return
+
+        try:
+            server.start(port=self._settings.remote_control_port)
+        except OSError as exc:
+            self.statusBar().showMessage(
+                f"Could not start mobile remote control: {exc}",
+                6000,
+            )
+            self._refresh_remote_control_info()
+            return
+
+        self._refresh_remote_control_info()
+        self.statusBar().showMessage(
+            f"Mobile remote control ready at {server.url}",
+            5000,
+        )
 
     def _open_visualizer_preview(self) -> None:
         if self._visualizer_preview is not None:
@@ -399,6 +495,8 @@ class HarvisSettingsWindow(SettingsWindow):
         selected_language = self.speech_language.currentData()
         selected_mode = self.assistant_mode.currentText()
         selected_ai_watermark = self.ai_watermark.currentText() == "On"
+        selected_remote_control = self.remote_control_enabled.currentText() == "On"
+        selected_remote_port = self.remote_control_port.value()
         pending_api_key = self.gemini_api_key.text().strip()
         api_key_changed = False
 
@@ -420,6 +518,8 @@ class HarvisSettingsWindow(SettingsWindow):
         self._settings.user_name = selected_user_name
         self._settings.assistant_mode = selected_mode
         self._settings.ai_watermark_enabled = selected_ai_watermark
+        self._settings.remote_control_enabled = selected_remote_control
+        self._settings.remote_control_port = selected_remote_port
         if isinstance(selected_language, str) and selected_language:
             self._settings.speech_language = selected_language
         self._settings_store.save(self._settings)
@@ -428,6 +528,10 @@ class HarvisSettingsWindow(SettingsWindow):
         self.ai_watermark.setCurrentText(
             "On" if self._settings.ai_watermark_enabled else "Off"
         )
+        self.remote_control_enabled.setCurrentText(
+            "On" if self._settings.remote_control_enabled else "Off"
+        )
+        self.remote_control_port.setValue(self._settings.remote_control_port)
         set_ai_watermark_enabled(self._settings.ai_watermark_enabled)
 
         if self._assistant is not None:
@@ -438,6 +542,7 @@ class HarvisSettingsWindow(SettingsWindow):
                 self._assistant.start()
 
         self.sync_live_visualizer()
+        self.sync_remote_control()
 
         if api_key_changed:
             self.statusBar().showMessage(
@@ -450,6 +555,8 @@ class HarvisSettingsWindow(SettingsWindow):
             self._visualizer_preview.close()
         if self._live_visualizer is not None:
             self._live_visualizer.close()
+        if self._remote_server is not None:
+            self._remote_server.stop()
         if self._assistant is not None:
             self._assistant.stop()
         super().closeEvent(event)
@@ -508,8 +615,9 @@ def main() -> int:
     sync_gemini_api_key_environment()
 
     settings_store = SettingsStore()
-    assistant: HarvisAssistant | None = None
+    assistant: RemoteCapableHarvisAssistant | None = None
     assistant_signals: AssistantSignals | None = None
+    remote_server: RemoteControlServer | None = None
 
     if options.visualizer_preview is not None:
         settings = settings_store.load()
@@ -533,6 +641,9 @@ def main() -> int:
                 print(f"[Harvis] {status}", flush=True)
                 window.statusBar().showMessage(status)
                 window.set_silent_status(status)
+
+                if status in {"Microphone muted", "Microphone active"}:
+                    window.sync_live_visualizer()
 
                 if status.startswith("Looking for on-screen target:"):
                     window.set_live_loading(True)
@@ -569,8 +680,9 @@ def main() -> int:
             assistant_signals.spectrum.connect(window.set_live_spectrum)
             assistant_signals.shutdown_requested.connect(request_shutdown)
 
-            assistant = HarvisAssistant(
-                settings_store.load(),
+            settings = settings_store.load()
+            assistant = RemoteCapableHarvisAssistant(
+                settings,
                 on_heard=assistant_signals.heard.emit,
                 on_response=assistant_signals.response.emit,
                 on_audio_level=assistant_signals.audio_level.emit,
@@ -580,6 +692,15 @@ def main() -> int:
             )
             window.set_assistant(assistant)
             app.aboutToQuit.connect(assistant.stop)
+
+            remote_server = RemoteControlServer(
+                command_handler=assistant.send_remote_command,
+                status_provider=assistant.remote_status,
+                microphone_toggle_handler=assistant.toggle_microphone_muted,
+                port=settings.remote_control_port,
+            )
+            window.set_remote_server(remote_server)
+            app.aboutToQuit.connect(remote_server.stop)
 
     if instance_coordinator is not None:
         instance_coordinator.activation_requested.connect(
@@ -592,5 +713,6 @@ def main() -> int:
         window.sync_live_visualizer()
         print("[Harvis] Gemini Live runtime scheduled to start.", flush=True)
         QTimer.singleShot(300, assistant.start)
+        QTimer.singleShot(450, window.sync_remote_control)
 
     return app.exec()
