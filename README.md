@@ -1,6 +1,6 @@
 # Harvis
 
-Harvis is a cross-platform desktop personal assistant built in Python. It combines real-time Gemini Live conversation, local computer control, visual interaction, configurable voice and silent modes, and optional audio-reactive visualizers.
+Harvis is a cross-platform desktop personal assistant built in Python. It combines real-time Gemini Live conversation, local computer control, visual interaction, configurable voice and silent modes, optional audio-reactive visualizers, and paired mobile control over the local network.
 
 The project currently focuses on Windows while keeping the architecture portable to Linux wherever the underlying system integrations allow it.
 
@@ -12,6 +12,7 @@ The project currently focuses on Windows while keeping the architecture portable
 - Desktop control through approved local tools.
 - Multi-step task orchestration for long single-instruction workflows.
 - Automatic screen-stability and visible-target readiness guards for workflows with more than two steps.
+- Paired mobile remote control over the local network.
 - Application discovery and launch support.
 - Browser, media, volume, keyboard, mouse, scrolling, and self-shutdown actions.
 - Visual clicking with Gemini Vision plus a local fallback stack.
@@ -61,6 +62,25 @@ Scroll down
 ```
 
 The Silent popup intentionally hides detailed visual target names while Harvis is searching so the popup itself does not interfere with visual target detection.
+
+## Mobile remote control
+
+Harvis can expose a small responsive controller to phones and tablets on the same local network. The feature is disabled by default.
+
+To enable it:
+
+1. Open Settings > General.
+2. Set `Remote control` to `On`.
+3. Keep the default LAN port or choose another port between 1024 and 65535.
+4. Save settings.
+5. Open the displayed `Phone URL` on a phone connected to the same local network.
+6. Enter the six-digit pairing code shown in Harvis Settings.
+
+The mobile page can send text commands to the same Gemini Live assistant in either Speaking or Silent mode, display the latest Harvis status and response, and mute or unmute microphone forwarding while Harvis is in Speaking mode.
+
+Pairing returns a random browser token that is stored by that browser. The pairing code and browser token are replaced whenever the remote server restarts, including when the port changes or Harvis is restarted. Repeated incorrect pairing attempts are rate-limited.
+
+The remote server accepts only private, loopback, or link-local client addresses and is intended for trusted local networks. It does not require Internet port forwarding, and port forwarding is not recommended. The current local controller uses HTTP rather than TLS, so it should not be exposed to public or untrusted networks.
 
 ## Computer control
 
@@ -181,7 +201,7 @@ Gemini Live
     |
     +--> Function call --> Harvis local tool --> Windows / Linux
     |
-    +--> execute_action_plan --> Task orchestrator --> ordered approved actions
+    +--> execute_action_plan --> Task orchestrator --> guarded ordered actions
 
 Silent mode
 
@@ -194,7 +214,17 @@ Gemini Live
     |
     +--> Function call --> Harvis local tool --> Windows / Linux
     |
-    +--> execute_action_plan --> Task orchestrator --> ordered approved actions
+    +--> execute_action_plan --> Task orchestrator --> guarded ordered actions
+
+Mobile remote
+
+Phone browser on trusted LAN
+    |
+    +--> pairing code --> temporary browser token
+    |
+    +--> text command --> Gemini Live --> Harvis tools / task orchestrator
+    |
+    +--> authenticated status polling --> latest Harvis state and response
 ```
 
 Gemini Live uses 16-bit PCM audio. Harvis currently uses a 16 kHz microphone stream and 24 kHz playback stream in Speaking mode.
@@ -216,6 +246,8 @@ Harvis currently stores persistent settings for:
 - Visualizer sensitivity.
 - AI provider.
 - AI watermark enabled state.
+- Mobile remote control enabled state.
+- Mobile remote LAN port.
 
 Supported preferred response languages currently include:
 
@@ -234,6 +266,7 @@ Gemini Live can still understand multiple languages. The configured language act
 - A microphone and audio output device for Speaking mode.
 - Windows 10/11 for the primary current desktop target.
 - On Linux, the required system utilities for the feature being used.
+- A trusted local network when using mobile remote control.
 
 Python dependencies are listed in `requirements.txt`.
 
@@ -287,6 +320,8 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 python -m harvis --no-voice
 ```
 
+Mobile remote control is unavailable in `--no-voice` mode because there is no active assistant runtime to receive remote commands.
+
 ### Visualizer previews
 
 Sphere:
@@ -317,7 +352,7 @@ Run the test suite with:
 python -m pytest
 ```
 
-The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, guarded long-workflow readiness, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
+The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, guarded long-workflow readiness, paired mobile remote control, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
 
 ## Current limitations
 
@@ -325,6 +360,7 @@ The repository includes tests for settings, Gemini Live lifecycle safeguards and
 - Multi-step action plans intentionally stop when the screen does not settle, a required readiness target cannot be found confidently, a visual step becomes uncertain, or confirmation is required; they do not guess through unknown UI states.
 - Screen-stability detection is a visual heuristic, so highly animated desktops can take longer to settle or can stop a guarded plan safely.
 - Local visual detection is a fallback and cannot guarantee recognition of every interface.
+- Mobile remote control is LAN-only and currently uses HTTP rather than TLS, so it should be used only on a trusted private network and never exposed through public port forwarding.
 - Some Linux desktop-control features depend on X11-compatible tools such as `xdotool`; Wayland support is not complete.
 - Windows is currently the most heavily tested platform.
 - A packaged installer or signed executable is not currently part of the repository release process.
