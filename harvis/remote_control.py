@@ -99,7 +99,9 @@ _MOBILE_HTML = r"""<!doctype html>
       const response = await fetch(path, Object.assign({}, options, {headers}));
       let data = {};
       try { data = await response.json(); } catch (_) {}
-      if(response.status === 401){ localStorage.removeItem(TOKEN_KEY); showPairing("Pairing is required."); throw new Error("Pairing required"); }
+      if(response.status === 401 && path !== "/api/pair"){
+        localStorage.removeItem(TOKEN_KEY); showPairing("Pairing is required."); throw new Error("Pairing required");
+      }
       if(!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
       return data;
     }
@@ -246,6 +248,7 @@ class RemoteControlServer:
 
         class Handler(BaseHTTPRequestHandler):
             server_version = "HarvisRemote/1.0"
+            sys_version = ""
 
             def log_message(self, format: str, *args: Any) -> None:
                 return
