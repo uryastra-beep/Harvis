@@ -116,46 +116,10 @@ class HarvisSettingsWindow(SettingsWindow):
         personalization_note.setWordWrap(True)
         personalization_form.addRow(personalization_note)
 
-        remote_group = self._glass_group("Mobile remote control")
-        remote_form = QFormLayout(remote_group)
-        remote_form.setHorizontalSpacing(18)
-        remote_form.setVerticalSpacing(12)
-
-        self.remote_control_enabled = QComboBox()
-        self.remote_control_enabled.addItems(("Off", "On"))
-        remote_form.addRow("Remote control", self.remote_control_enabled)
-
-        self.remote_control_port = QSpinBox()
-        self.remote_control_port.setRange(
-            REMOTE_CONTROL_PORT_MIN,
-            REMOTE_CONTROL_PORT_MAX,
-        )
-        remote_form.addRow("LAN port", self.remote_control_port)
-
-        self.remote_control_url = QLabel("Remote control is off.")
-        self.remote_control_url.setObjectName("mutedLabel")
-        self.remote_control_url.setWordWrap(True)
-        remote_form.addRow("Phone URL", self.remote_control_url)
-
-        self.remote_pairing_code = QLabel("Enable remote control and save settings to generate a code.")
-        self.remote_pairing_code.setObjectName("mutedLabel")
-        self.remote_pairing_code.setWordWrap(True)
-        remote_form.addRow("Pairing code", self.remote_pairing_code)
-
-        remote_note = QLabel(
-            "The mobile controller is served only on the local network. Pairing uses a six-digit code shown here, "
-            "and the browser token is replaced whenever the remote server restarts. No Internet port forwarding is "
-            "required or recommended."
-        )
-        remote_note.setObjectName("mutedLabel")
-        remote_note.setWordWrap(True)
-        remote_form.addRow(remote_note)
-
         if isinstance(layout, QVBoxLayout):
             insertion_index = max(0, layout.count() - 1)
             layout.insertWidget(insertion_index, mode_group)
             layout.insertWidget(insertion_index + 1, personalization_group)
-            layout.insertWidget(insertion_index + 2, remote_group)
 
         return page
 
@@ -258,6 +222,53 @@ class HarvisSettingsWindow(SettingsWindow):
 
         return page
 
+    def _build_advanced_page(self):
+        page, layout = self._page_shell(
+            "Advanced",
+            "Configure local connectivity and advanced Harvis behavior.",
+        )
+
+        remote_group = self._glass_group("Mobile remote control")
+        remote_form = QFormLayout(remote_group)
+        remote_form.setHorizontalSpacing(18)
+        remote_form.setVerticalSpacing(12)
+
+        self.remote_control_enabled = QComboBox()
+        self.remote_control_enabled.addItems(("Off", "On"))
+        remote_form.addRow("Remote control", self.remote_control_enabled)
+
+        self.remote_control_port = QSpinBox()
+        self.remote_control_port.setRange(
+            REMOTE_CONTROL_PORT_MIN,
+            REMOTE_CONTROL_PORT_MAX,
+        )
+        remote_form.addRow("LAN port", self.remote_control_port)
+
+        self.remote_control_url = QLabel("Remote control is off.")
+        self.remote_control_url.setObjectName("mutedLabel")
+        self.remote_control_url.setWordWrap(True)
+        remote_form.addRow("Phone URL", self.remote_control_url)
+
+        self.remote_pairing_code = QLabel(
+            "Enable remote control and save settings to generate a code."
+        )
+        self.remote_pairing_code.setObjectName("mutedLabel")
+        self.remote_pairing_code.setWordWrap(True)
+        remote_form.addRow("Pairing code", self.remote_pairing_code)
+
+        remote_note = QLabel(
+            "The mobile controller is served only on the local network. Pairing uses a six-digit code shown here, "
+            "and the browser token is replaced whenever the remote server restarts. No Internet port forwarding is "
+            "required or recommended."
+        )
+        remote_note.setObjectName("mutedLabel")
+        remote_note.setWordWrap(True)
+        remote_form.addRow(remote_note)
+
+        layout.addWidget(remote_group)
+        layout.addStretch(1)
+        return page
+
     def _load_settings_into_controls(self) -> None:
         super()._load_settings_into_controls()
 
@@ -289,7 +300,9 @@ class HarvisSettingsWindow(SettingsWindow):
         self._refresh_remote_control_info()
 
     def _refresh_remote_control_info(self) -> None:
-        if not hasattr(self, "remote_control_url") or not hasattr(self, "remote_pairing_code"):
+        if not hasattr(self, "remote_control_url") or not hasattr(
+            self, "remote_pairing_code"
+        ):
             return
 
         server = self._remote_server
