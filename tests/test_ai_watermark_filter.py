@@ -10,7 +10,7 @@ from harvis.config import HarvisSettings
 
 
 @pytest.mark.parametrize(
-    "request",
+    "prompt",
     [
         "Escribe hola mundo",
         "Redáctame un mensaje para mañana",
@@ -23,12 +23,12 @@ from harvis.config import HarvisSettings
         "Compose a short message",
     ],
 )
-def test_authored_writing_requests_enable_watermark(request: str) -> None:
-    assert should_watermark_ai_authored_text(request) is True
+def test_authored_writing_requests_enable_watermark(prompt: str) -> None:
+    assert should_watermark_ai_authored_text(prompt) is True
 
 
 @pytest.mark.parametrize(
-    "request",
+    "prompt",
     [
         "Busca gatos en Google",
         "Escribe gatos en la barra de búsqueda",
@@ -40,8 +40,8 @@ def test_authored_writing_requests_enable_watermark(request: str) -> None:
         "Open the browser and search for Harvis",
     ],
 )
-def test_search_navigation_and_url_requests_disable_watermark(request: str) -> None:
-    assert should_watermark_ai_authored_text(request) is False
+def test_search_navigation_and_url_requests_disable_watermark(prompt: str) -> None:
+    assert should_watermark_ai_authored_text(prompt) is False
 
 
 def test_assistant_applies_watermark_only_for_writing_context(monkeypatch) -> None:
