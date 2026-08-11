@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from dataclasses import dataclass
@@ -7,6 +8,7 @@ from typing import Any
 
 from harvis.actions.screen_control import ScreenCapture
 from harvis.actions.system import SystemActionError
+from harvis.credentials import get_gemini_api_key
 
 VISION_MODEL = os.getenv("HARVIS_VISION_MODEL", "gemini-3.6-flash").strip() or "gemini-3.6-flash"
 LEGACY_VISION_MODEL = "gemini-2.5-flash"
@@ -53,7 +55,7 @@ def locate_visual_target(capture: ScreenCapture, target: str) -> VisionTarget:
     if not target_text:
         raise ValueError("A visual target description is required.")
 
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    api_key = get_gemini_api_key()
     if not api_key:
         raise SystemActionError(
             "GEMINI_API_KEY is not configured, so Harvis cannot analyze the screen."
@@ -125,10 +127,8 @@ def _generation_config(types):
 
     thinking_config_type = getattr(types, "ThinkingConfig", None)
     if thinking_config_type is not None:
-        try:
+        with contextlib.suppress(Exception):
             kwargs["thinking_config"] = thinking_config_type(thinking_level="minimal")
-        except Exception:
-            pass
 
     try:
         return types.GenerateContentConfig(**kwargs)

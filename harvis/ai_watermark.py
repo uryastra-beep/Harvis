@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 import unicodedata
 
-
 _AUTHORED_CONTENT_RE = re.compile(
     r"\b(?:"
     r"texto|mensaje|correo|email|e-mail|carta|parrafo|descripcion|publicacion|post|caption|"

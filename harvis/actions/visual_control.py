@@ -17,8 +17,10 @@ from harvis.actions.screen_control import (
     _click_mouse,
     _move_cursor,
     _normalized_to_screen,
-    capture_full_screen as capture_full_screen_fallback,
     move_pointer,
+)
+from harvis.actions.screen_control import (
+    capture_full_screen as capture_full_screen_fallback,
 )
 from harvis.actions.system import SystemActionError
 from harvis.actions.vision_locator import (
@@ -423,13 +425,11 @@ def _failed_vision_result(
 ) -> dict[str, Any]:
     best_found = local_target.found
     best_confidence = local_target.confidence
-    description = local_target.description
     sensitive = local_target.sensitive
 
     if cloud_target is not None and _target_score(cloud_target) > best_confidence:
         best_found = cloud_target.found
         best_confidence = cloud_target.confidence
-        description = cloud_target.description
         sensitive = cloud_target.sensitive
 
     if cloud_error is not None:

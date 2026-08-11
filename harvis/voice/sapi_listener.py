@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import contextlib
 import threading
 from collections.abc import Callable
 
 from comtypes import CoInitialize, CoUninitialize
 from comtypes.client import CreateObject, GetEvents, PumpEvents
-
 
 SAPI_LANGUAGE_IDS = {
     "es-419": "580A",
@@ -242,16 +242,12 @@ class SapiSpeechListener:
             self._ready_event.clear()
 
             if grammar is not None:
-                try:
+                with contextlib.suppress(Exception):
                     grammar.DictationSetState(self.SGDS_INACTIVE)
-                except Exception:
-                    pass
 
             if connection is not None:
-                try:
+                with contextlib.suppress(Exception):
                     connection.disconnect()
-                except Exception:
-                    pass
 
             connection = None
             grammar = None

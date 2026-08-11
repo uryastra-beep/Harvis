@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import io
 import math
 import platform
 import re
 import unicodedata
+from collections.abc import Iterable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 from harvis.actions.screen_control import ScreenCapture
 

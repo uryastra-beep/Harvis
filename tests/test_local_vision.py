@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from harvis.actions import visual_control
+from harvis.actions import local_vision, visual_control
 from harvis.actions.local_vision import (
     LOCAL_CONFIDENCE_THRESHOLD,
     LocalCandidate,
@@ -108,6 +108,21 @@ def _cloud_match() -> VisionTarget:
         box_2d=(450, 450, 550, 550),
         model="test-vision-model",
     )
+
+
+def test_local_locator_empty_candidate_path_fails_safely(monkeypatch) -> None:
+    monkeypatch.setattr(
+        local_vision,
+        "_accessibility_candidates",
+        lambda hints, capture: ([], ""),
+    )
+    monkeypatch.setattr(local_vision, "_decode_capture", lambda capture: None)
+
+    result = local_vision.locate_local_target(_capture(), "unknown button")
+
+    assert result.found is False
+    assert result.confidence == 0.0
+    assert result.methods == ()
 
 
 def test_vision_click_prefers_gemini_when_cloud_is_available(monkeypatch) -> None:

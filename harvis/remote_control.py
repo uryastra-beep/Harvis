@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import ipaddress
 import json
 import secrets
@@ -13,6 +14,7 @@ from typing import Any
 
 DEFAULT_REMOTE_PORT = 8765
 MAX_REMOTE_BODY_BYTES = 16 * 1024
+MAX_REMOTE_COMMAND_CHARACTERS = 4096
 PAIR_FAILURE_LIMIT = 8
 PAIR_FAILURE_WINDOW_SECONDS = 60.0
 SUPPORTED_AUDIO_OUTPUTS = {"pc", "phone", "both"}
@@ -330,7 +332,8 @@ class RemoteControlServer:
 
         self.stop()
         handler_class = self._handler_class()
-        server = _RemoteHTTPServer(("0.0.0.0", requested_port), handler_class)
+        # Phone access requires a LAN bind; every request is still restricted to local addresses.
+        server = _RemoteHTTPServer(("0.0.0.0", requested_port), handler_class)  # nosec B104
 
         with self._state_lock:
             self._configured_port = requested_port
@@ -368,10 +371,8 @@ class RemoteControlServer:
         handler = self._audio_output_handler
         if handler is None:
             return
-        try:
+        with contextlib.suppress(Exception):
             handler("pc")
-        except Exception:
-            pass
 
     def _handler_class(self):
         remote = self
@@ -458,6 +459,12 @@ class RemoteControlServer:
                     command = " ".join(str(payload.get("command", "")).split()).strip()
                     if not command:
                         self._send_json(HTTPStatus.BAD_REQUEST, {"error": "Command cannot be empty."})
+                        return
+                    if len(command) > MAX_REMOTE_COMMAND_CHARACTERS:
+                        self._send_json(
+                            HTTPStatus.REQUEST_ENTITY_TOO_LARGE,
+                            {"error": "Command is too long."},
+                        )
                         return
                     try:
                         remote._command_handler(command)
@@ -562,6 +569,11 @@ class RemoteControlServer:
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("X-Content-Type-Options", "nosniff")
                 self.send_header("X-Frame-Options", "DENY")
+                self.send_header("Referrer-Policy", "no-referrer")
+                self.send_header(
+                    "Permissions-Policy",
+                    "camera=(), geolocation=(), payment=(), usb=()",
+                )
                 self.send_header(
                     "Content-Security-Policy",
                     "default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "
@@ -623,6 +635,7 @@ class RemoteControlServer:
 
 __all__ = [
     "DEFAULT_REMOTE_PORT",
-    "RemoteControlServer",
+    "MAX_REMOTE_COMMAND_CHARACTERS",
     "SUPPORTED_AUDIO_OUTPUTS",
+    "RemoteControlServer",
 ]

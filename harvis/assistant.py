@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import threading
 import time
+import unicodedata
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
@@ -16,10 +20,15 @@ from harvis.actions.desktop import (
     control_media,
     open_application,
 )
-from harvis.actions.keyboard_control import press_key, type_lines, type_text
+from harvis.actions.keyboard_control import (
+    MAX_TEXT_CHARACTERS,
+    press_key,
+    type_lines,
+    type_text,
+)
 from harvis.actions.mouse_control import scroll_view
-from harvis.actions.visual_control import move_pointer, vision_click
 from harvis.actions.system import SystemActionError
+from harvis.actions.visual_control import move_pointer, vision_click
 from harvis.ai_watermark import should_watermark_ai_authored_text
 from harvis.config import HarvisSettings
 from harvis.core.intents import Intent, IntentType
@@ -29,6 +38,14 @@ from harvis.core.task_orchestrator import (
     task_plan_tool_declaration,
 )
 from harvis.voice.gemini_live import GeminiLiveVoice
+
+
+@dataclass(slots=True)
+class _PendingVisualConfirmation:
+    normalized_target: str
+    button: str
+    requested_at: float
+    approved: bool = False
 
 
 class HarvisGeminiLiveVoice(GeminiLiveVoice):
@@ -104,7 +121,10 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             "wait for that tool result, and then use vision_click on the newly visible UI. "
             "For example, to reveal an auto-hidden taskbar, move the pointer to bottom_center before looking "
             "for the requested taskbar icon. If vision_click reports confirmation_required, ask the user for "
-            "explicit confirmation and do not call it again with confirmed=true until the user confirms. "
+            "explicit confirmation. Harvis verifies the user's next response locally; only retry the same target "
+            "after the user clearly confirms. In Speaking mode, ask for a clear multi-word answer such as "
+            "'sí, hazlo' or 'yes, do it' so a partial voice transcript cannot approve the action. Never claim "
+            "that the user confirmed an action. "
             "Never take a screen capture merely out of curiosity or when a direct local tool can complete the task."
         )
 
@@ -278,13 +298,6 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
                             "enum": ["left", "right", "double_left"],
                             "description": "Mouse click type. Use left unless the user requests otherwise.",
                         },
-                        "confirmed": {
-                            "type": "boolean",
-                            "description": (
-                                "Set true only after the user explicitly confirms a consequential or destructive "
-                                "visual action that previously returned confirmation_required."
-                            ),
-                        },
                     },
                     "required": ["target"],
                 },
@@ -363,6 +376,7 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
                     "properties": {
                         "text": {
                             "type": "string",
+                            "maxLength": MAX_TEXT_CHARACTERS,
                             "description": "Exact literal text the user asked Harvis to enter.",
                         }
                     },
@@ -421,6 +435,7 @@ class HarvisAssistant:
     """Coordinate Gemini Live voice, local tools, and application status."""
 
     _WATERMARK_CONTEXT_WINDOW_SECONDS = 2.0
+    _VISUAL_CONFIRMATION_TTL_SECONDS = 60.0
 
     def __init__(
         self,
@@ -448,6 +463,10 @@ class HarvisAssistant:
         self._watermark_context_text = ""
         self._watermark_context_at = 0.0
         self._watermark_pending = False
+        self._confirmation_context_text = ""
+        self._confirmation_context_at = 0.0
+        self._visual_confirmation_lock = threading.RLock()
+        self._pending_visual_confirmation: _PendingVisualConfirmation | None = None
 
         self._voice = HarvisGeminiLiveVoice(
             user_name=settings.user_name,
@@ -495,6 +514,7 @@ class HarvisAssistant:
         if self._settings.assistant_mode != "Silent":
             raise SystemActionError("Text commands are available only in Silent mode.")
 
+        self._record_visual_confirmation_response(command, complete_input=True)
         self._set_watermark_context(command)
         if not self._voice.send_text(command):
             raise SystemActionError("Harvis could not queue the text command.")
@@ -560,6 +580,7 @@ class HarvisAssistant:
         return bool(self._settings.ai_watermark_enabled and self._watermark_pending)
 
     def _handle_input_transcript(self, text: str) -> None:
+        self._record_visual_confirmation_response(text, complete_input=False)
         self._set_watermark_context(text, append_fragment=True)
         callback = self._on_heard
         if callback is not None:
@@ -582,6 +603,166 @@ class HarvisAssistant:
 
     def _handle_live_error(self, error: Exception) -> None:
         self._notify_status(f"Gemini Live unavailable: {error}")
+
+    @staticmethod
+    def _normalize_confirmation_text(text: str) -> str:
+        decomposed = unicodedata.normalize("NFKD", str(text))
+        without_marks = "".join(
+            character
+            for character in decomposed
+            if not unicodedata.combining(character)
+        )
+        return " ".join(re.sub(r"[^a-zA-Z0-9]+", " ", without_marks).casefold().split())
+
+    @classmethod
+    def _confirmation_decision(
+        cls,
+        text: str,
+        *,
+        allow_single_word: bool,
+    ) -> bool | None:
+        normalized = cls._normalize_confirmation_text(text)
+        if not normalized:
+            return None
+
+        negative_phrases = {
+            "cancel",
+            "cancel it",
+            "cancel that",
+            "cancela",
+            "cancelalo",
+            "do not",
+            "do not do it",
+            "dont",
+            "dont do it",
+            "no",
+            "no hagas eso",
+            "no lo hagas",
+            "stop",
+        }
+        words = set(normalized.split())
+        if (
+            normalized in negative_phrases
+            or normalized.startswith(("no ", "dont ", "do not "))
+            or "no" in words
+            or "dont" in words
+        ):
+            return False
+
+        affirmative_phrases = {
+            "adelante",
+            "confirm",
+            "confirmed",
+            "confirmado",
+            "confirmalo",
+            "confirmo",
+            "do it",
+            "go ahead",
+            "hazlo",
+            "proceed",
+            "procede",
+            "si",
+            "si adelante",
+            "si confirmo",
+            "si hazlo",
+            "si hazlo por favor",
+            "sure",
+            "yes",
+            "yes confirm",
+            "yes do it",
+            "yes go ahead",
+        }
+        if normalized not in affirmative_phrases:
+            return None
+        if not allow_single_word and len(normalized.split()) < 2:
+            return None
+        return True
+
+    @staticmethod
+    def _normalize_visual_target(target: str) -> str:
+        return " ".join(str(target).casefold().split())
+
+    def _pending_confirmation_locked(self) -> _PendingVisualConfirmation | None:
+        pending = self._pending_visual_confirmation
+        if pending is None:
+            return None
+        if time.monotonic() - pending.requested_at > self._VISUAL_CONFIRMATION_TTL_SECONDS:
+            self._pending_visual_confirmation = None
+            return None
+        return pending
+
+    def _record_visual_confirmation_response(
+        self,
+        text: str,
+        *,
+        complete_input: bool,
+    ) -> None:
+        candidate = str(text)
+        now = time.monotonic()
+        if complete_input:
+            self._confirmation_context_text = ""
+            self._confirmation_context_at = 0.0
+        else:
+            fragment = " ".join(candidate.split()).strip()
+            if (
+                self._confirmation_context_text
+                and now - self._confirmation_context_at
+                <= self._WATERMARK_CONTEXT_WINDOW_SECONDS
+            ):
+                if fragment.startswith(self._confirmation_context_text):
+                    candidate = fragment
+                elif self._confirmation_context_text.startswith(fragment):
+                    candidate = self._confirmation_context_text
+                else:
+                    candidate = f"{self._confirmation_context_text} {fragment}".strip()
+            else:
+                candidate = fragment
+            self._confirmation_context_text = candidate
+            self._confirmation_context_at = now
+
+        decision = self._confirmation_decision(
+            candidate,
+            allow_single_word=complete_input,
+        )
+        if decision is None:
+            return
+
+        status: str | None = None
+        with self._visual_confirmation_lock:
+            pending = self._pending_confirmation_locked()
+            if pending is None:
+                return
+            if decision:
+                pending.approved = True
+                status = "Visual action confirmed by user"
+            else:
+                self._pending_visual_confirmation = None
+                status = "Visual action cancelled by user"
+
+        if status is not None:
+            self._notify_status(status)
+
+    def _visual_confirmation_state(self, target: str, button: str) -> str:
+        normalized_target = self._normalize_visual_target(target)
+        with self._visual_confirmation_lock:
+            pending = self._pending_confirmation_locked()
+            if pending is None:
+                return "none"
+            if pending.normalized_target != normalized_target or pending.button != button:
+                self._pending_visual_confirmation = None
+                return "different"
+            if not pending.approved:
+                return "awaiting"
+            self._pending_visual_confirmation = None
+            return "approved"
+
+    def _request_visual_confirmation(self, target: str, button: str) -> None:
+        with self._visual_confirmation_lock:
+            self._pending_visual_confirmation = _PendingVisualConfirmation(
+                normalized_target=self._normalize_visual_target(target),
+                button=button,
+                requested_at=time.monotonic(),
+            )
 
     def _execute_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if name == "execute_action_plan":
@@ -712,15 +893,27 @@ class HarvisAssistant:
             if not target:
                 raise ValueError("vision_click requires target.")
 
+            button = str(arguments.get("button", "left")).strip().lower() or "left"
+            confirmation_state = self._visual_confirmation_state(target, button)
+            if confirmation_state == "awaiting":
+                self._notify_status(f"Waiting for user confirmation before clicking: {target}")
+                return {
+                    "status": "confirmation_required",
+                    "target": target,
+                    "button": button,
+                    "reason": "Harvis has not received explicit user confirmation yet.",
+                }
+
             self._notify_status(f"Looking for on-screen target: {target}")
             result = vision_click(
                 target,
-                button=str(arguments.get("button", "left")),
-                confirmed=bool(arguments.get("confirmed", False)),
+                button=button,
+                confirmed=confirmation_state == "approved",
             )
             if result.get("status") == "clicked":
                 self._notify_status(f"Clicked on-screen target: {target}")
             elif result.get("status") == "confirmation_required":
+                self._request_visual_confirmation(target, button)
                 self._notify_status(f"Confirmation required before clicking: {target}")
             else:
                 self._notify_status(f"Could not confidently click: {target}")

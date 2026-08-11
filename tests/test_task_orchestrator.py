@@ -5,6 +5,7 @@ import pytest
 from harvis.assistant import HarvisGeminiLiveVoice
 from harvis.core.task_orchestrator import (
     MAX_TOTAL_WAIT_SECONDS,
+    MAX_TYPED_TEXT_CHARACTERS,
     TaskOrchestrator,
     TaskPlanError,
 )
@@ -243,6 +244,45 @@ def test_plan_pauses_when_visual_confirmation_is_required() -> None:
     assert calls == ["open_application", "vision_click"]
 
 
+def test_plan_cannot_preconfirm_sensitive_visual_action() -> None:
+    received_arguments: list[dict] = []
+
+    def executor(name: str, arguments: dict) -> dict:
+        received_arguments.append(arguments)
+        return {"status": "confirmation_required"}
+
+    orchestrator = _orchestrator(executor)
+    result = orchestrator.execute(
+        [
+            {
+                "action": "vision_click",
+                "target": "Delete account",
+                "confirmed": True,
+            }
+        ]
+    )
+
+    assert result["status"] == "paused"
+    assert received_arguments == [
+        {"target": "Delete account", "button": "left"}
+    ]
+
+
+def test_task_plan_schema_does_not_expose_model_confirmation_flag() -> None:
+    declaration = HarvisGeminiLiveVoice._tool_declarations()
+    functions = {
+        function["name"]: function
+        for function in declaration[0]["function_declarations"]
+    }
+    vision_properties = functions["vision_click"]["parameters"]["properties"]
+    plan_step_properties = functions["execute_action_plan"]["parameters"][
+        "properties"
+    ]["steps"]["items"]["properties"]
+
+    assert "confirmed" not in vision_properties
+    assert "confirmed" not in plan_step_properties
+
+
 def test_plan_stops_after_uncertain_visual_result() -> None:
     calls: list[str] = []
 
@@ -301,6 +341,29 @@ def test_invalid_plan_is_rejected_before_any_action_runs() -> None:
             [
                 {"action": "open_application", "app_name": "Notepad"},
                 {"action": "shutdown_harvis"},
+            ]
+        )
+
+    assert calls == []
+
+
+def test_plan_rejects_oversized_typing_before_any_action_runs() -> None:
+    calls: list[str] = []
+
+    def executor(name: str, arguments: dict) -> dict:
+        calls.append(name)
+        return {"status": "completed"}
+
+    orchestrator = _orchestrator(executor)
+
+    with pytest.raises(TaskPlanError, match="text safety limit"):
+        orchestrator.execute(
+            [
+                {"action": "open_application", "app_name": "Notepad"},
+                {
+                    "action": "type_text",
+                    "text": "x" * (MAX_TYPED_TEXT_CHARACTERS + 1),
+                },
             ]
         )
 

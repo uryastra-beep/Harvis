@@ -21,7 +21,7 @@ Harvis is a Python desktop personal assistant that combines Gemini Live conversa
 - Local application discovery for opening and closing installed apps.
 - Browser, media, system-volume, keyboard, mouse, scrolling, and Harvis self-shutdown tools.
 - Visual clicking with Gemini Vision as the primary locator, a local fallback stack, and a final Gemini Vision retry.
-- Confirmation requirement for sensitive or destructive visual actions.
+- Locally enforced confirmation for sensitive or destructive visual actions that cannot be bypassed by an AI-supplied flag.
 - Live Sphere and Bars visualizers driven by Gemini output audio.
 - Click the live Sphere to mute or unmute microphone forwarding without disconnecting Gemini Live.
 - A visible diagonal indicator on the Sphere while the microphone is muted.
@@ -99,6 +99,9 @@ Gemini Vision
 ```
 
 The local locator uses accessibility information and local visual evidence rather than random low-confidence clicking.
+
+Sensitive visual clicks now require a real subsequent user confirmation recorded by the local runtime. Confirmation
+authorizes only one retry for the same target and click type; an AI-generated argument cannot self-approve the action.
 
 ### Setup
 

@@ -1,7 +1,7 @@
 import math
 from array import array
 
-from harvis.voice.gemini_live import GeminiLiveVoice, OUTPUT_SAMPLE_RATE, SPECTRUM_BINS
+from harvis.voice.gemini_live import OUTPUT_SAMPLE_RATE, SPECTRUM_BINS, GeminiLiveVoice
 
 
 def _pcm16_sine(frequency: float, duration_seconds: float, amplitude: float = 0.5) -> bytes:

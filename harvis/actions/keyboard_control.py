@@ -14,6 +14,7 @@ SUSPICIOUS_PUNCTUATION_RE = re.compile(
 )
 SUPPORTED_KEYS = {"enter"}
 MAX_LINE_SEQUENCE = 50
+MAX_TEXT_CHARACTERS = 50_000
 AI_WATERMARK = "#G6m2i9 "
 _ai_watermark_enabled = False
 
@@ -81,7 +82,7 @@ def type_lines(
     """Type multiple literal lines with exactly one physical Enter between them."""
 
     if not isinstance(lines, list):
-        raise ValueError("type_lines requires a list of text lines.")
+        raise TypeError("type_lines requires a list of text lines.")
     if not lines:
         return {
             "status": "completed",
@@ -103,6 +104,11 @@ def type_lines(
             )
         _validate_text_payload(value)
         normalized_lines.append(value)
+
+    if sum(len(value) for value in normalized_lines) > MAX_TEXT_CHARACTERS:
+        raise ValueError(
+            f"type_lines supports at most {MAX_TEXT_CHARACTERS} total characters per call."
+        )
 
     watermark_pending = _ai_watermark_enabled and apply_watermark
     for index, value in enumerate(normalized_lines):
@@ -136,6 +142,11 @@ def _normalize_text_payload(text: str) -> str:
 
 def _validate_text_payload(text: str) -> None:
     """Reject obviously corrupted tool payloads before they reach the keyboard."""
+
+    if len(text) > MAX_TEXT_CHARACTERS:
+        raise SystemActionError(
+            f"The text payload exceeds the {MAX_TEXT_CHARACTERS}-character safety limit."
+        )
 
     if "\x00" in text or "\ufffd" in text:
         raise SystemActionError(
@@ -204,7 +215,8 @@ def _windows_type_unicode(text: str) -> None:
             ("union", InputUnion),
         ]
 
-    send_input = ctypes.windll.user32.SendInput
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    send_input = user32.SendInput
     send_input.argtypes = (wintypes.UINT, ctypes.POINTER(Input), ctypes.c_int)
     send_input.restype = wintypes.UINT
 
@@ -359,4 +371,10 @@ def _linux_press_key(key: str, count: int) -> None:
             raise SystemActionError("Harvis could not press the requested Linux key.")
 
 
-__all__ = ["press_key", "set_ai_watermark_enabled", "type_lines", "type_text"]
+__all__ = [
+    "MAX_TEXT_CHARACTERS",
+    "press_key",
+    "set_ai_watermark_enabled",
+    "type_lines",
+    "type_text",
+]

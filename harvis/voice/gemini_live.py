@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
-import os
 import sys
 import threading
 import time
@@ -10,6 +10,8 @@ from array import array
 from collections import deque
 from collections.abc import Callable
 from typing import Any
+
+from harvis.credentials import get_gemini_api_key
 
 MODEL_NAME = "gemini-3.1-flash-live-preview"
 INPUT_SAMPLE_RATE = 16000
@@ -122,10 +124,8 @@ class GeminiLiveVoice:
 
         loop = self._loop
         if loop is not None and loop.is_running():
-            try:
+            with contextlib.suppress(RuntimeError):
                 loop.call_soon_threadsafe(self._cancel_runtime_tasks)
-            except RuntimeError:
-                pass
 
         thread = self._thread
         if thread is None or thread is threading.current_thread():
@@ -159,10 +159,8 @@ class GeminiLiveVoice:
         if normalized:
             loop = self._loop
             if loop is not None and loop.is_running():
-                try:
+                with contextlib.suppress(RuntimeError):
                     loop.call_soon_threadsafe(self._discard_queued_microphone_audio)
-                except RuntimeError:
-                    pass
             else:
                 self._discard_queued_microphone_audio()
 
@@ -224,7 +222,7 @@ class GeminiLiveVoice:
                 run_started_at = time.monotonic()
                 try:
                     asyncio.run(self._run())
-                except Exception as exc:
+                except Exception:
                     if self._stop_event.is_set():
                         break
 
@@ -312,7 +310,7 @@ class GeminiLiveVoice:
             self._session_resumption_handle = handle
 
     async def _run(self) -> None:
-        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        api_key = get_gemini_api_key()
         if not api_key:
             raise GeminiLiveError(
                 "GEMINI_API_KEY is not configured. Set it before starting Harvis."
@@ -441,10 +439,8 @@ class GeminiLiveVoice:
             for stream in (input_stream, output_stream):
                 if stream is None:
                     continue
-                try:
+                with contextlib.suppress(Exception):
                     stream.close()
-                except Exception:
-                    pass
 
             self._input_stream = None
             self._output_stream = None
@@ -471,10 +467,8 @@ class GeminiLiveVoice:
         for stream in (self._input_stream, self._output_stream):
             if stream is None:
                 continue
-            try:
+            with contextlib.suppress(Exception):
                 stream.abort()
-            except Exception:
-                pass
 
     def _cancel_runtime_tasks(self) -> None:
         for task in (
@@ -520,15 +514,11 @@ class GeminiLiveVoice:
             return
 
         if audio_queue.full():
-            try:
+            with contextlib.suppress(asyncio.QueueEmpty):
                 audio_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
 
-        try:
+        with contextlib.suppress(asyncio.QueueFull):
             audio_queue.put_nowait(chunk)
-        except asyncio.QueueFull:
-            pass
 
     def _queue_text_command(self, text: str) -> None:
         text_queue = self._text_queue
@@ -538,15 +528,11 @@ class GeminiLiveVoice:
             return
 
         if text_queue.full():
-            try:
+            with contextlib.suppress(asyncio.QueueEmpty):
                 text_queue.get_nowait()
-            except asyncio.QueueEmpty:
-                pass
 
-        try:
+        with contextlib.suppress(asyncio.QueueFull):
             text_queue.put_nowait(text)
-        except asyncio.QueueFull:
-            pass
 
     async def _send_microphone_audio(self, session, types) -> None:
         audio_queue = self._input_queue

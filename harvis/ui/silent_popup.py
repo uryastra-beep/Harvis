@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from harvis.ui.theme import PRIMARY, SECONDARY, TERTIARY, TEXT_MUTED, TEXT_PRIMARY
+from harvis.ui.theme import PRIMARY, SECONDARY, TEXT_MUTED, TEXT_PRIMARY
 
 
 class SilentCommandPopup(QWidget):
@@ -155,9 +155,7 @@ class SilentCommandPopup(QWidget):
         if not fragment:
             return
 
-        if not self._response_text:
-            combined = fragment
-        elif fragment.startswith(self._response_text):
+        if not self._response_text or fragment.startswith(self._response_text):
             combined = fragment
         elif fragment in self._response_text:
             combined = self._response_text

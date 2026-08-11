@@ -4,9 +4,9 @@ import asyncio
 
 import pytest
 
+from harvis.actions.system import SystemActionError
 from harvis.assistant import HarvisAssistant
 from harvis.config import HarvisSettings
-from harvis.actions.system import SystemActionError
 from harvis.voice.gemini_live import GeminiLiveVoice
 
 

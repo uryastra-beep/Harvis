@@ -10,7 +10,6 @@ from pathlib import Path
 
 from harvis.actions.system import SystemActionError
 
-
 APPLICATION_ALIASES = {
     "chrome": "chrome",
     "google chrome": "chrome",
@@ -343,9 +342,12 @@ def _post_close_to_windows(process_ids: set[int]) -> int:
         nonlocal closed_count
         process_id = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(process_id))
-        if process_id.value in process_ids and user32.IsWindowVisible(hwnd):
-            if user32.PostMessageW(hwnd, wm_close, 0, 0):
-                closed_count += 1
+        if (
+            process_id.value in process_ids
+            and user32.IsWindowVisible(hwnd)
+            and user32.PostMessageW(hwnd, wm_close, 0, 0)
+        ):
+            closed_count += 1
         return True
 
     user32.EnumWindows(callback, 0)

@@ -14,6 +14,7 @@ from harvis.actions.visual_control import (
 MAX_TASK_STEPS = 24
 MAX_WAIT_SECONDS = 5.0
 MAX_TOTAL_WAIT_SECONDS = 15.0
+MAX_TYPED_TEXT_CHARACTERS = 50_000
 
 TaskExecutor = Callable[[str, dict[str, Any]], dict[str, Any]]
 StatusCallback = Callable[[str], None]
@@ -447,7 +448,6 @@ class TaskOrchestrator:
             return {
                 "target": self._required_text(step, "target", index=index),
                 "button": button,
-                "confirmed": bool(step.get("confirmed", False)),
             }
 
         if action == "type_lines":
@@ -456,7 +456,12 @@ class TaskOrchestrator:
                 raise TaskPlanError(
                     f"Task plan step {index} requires 1 to 50 text lines."
                 )
-            return {"lines": [str(line) for line in lines]}
+            normalized_lines = [str(line) for line in lines]
+            if sum(len(line) for line in normalized_lines) > MAX_TYPED_TEXT_CHARACTERS:
+                raise TaskPlanError(
+                    f"Task plan step {index} exceeds the text safety limit."
+                )
+            return {"lines": normalized_lines}
 
         if action == "press_key":
             key = str(step.get("key", "enter")).strip().lower() or "enter"
@@ -478,10 +483,13 @@ class TaskOrchestrator:
 
         if action == "type_text":
             if "text" not in step:
+                raise TaskPlanError(f"Task plan step {index} requires text.")
+            text = str(step["text"])
+            if len(text) > MAX_TYPED_TEXT_CHARACTERS:
                 raise TaskPlanError(
-                    f"Task plan step {index} requires text."
+                    f"Task plan step {index} exceeds the text safety limit."
                 )
-            return {"text": str(step["text"])}
+            return {"text": text}
 
         if action == "wait":
             if "seconds" not in step:
@@ -652,7 +660,6 @@ def task_plan_tool_declaration() -> dict[str, Any]:
                                 "type": "string",
                                 "enum": ["left", "right", "double_left"],
                             },
-                            "confirmed": {"type": "boolean"},
                             "lines": {
                                 "type": "array",
                                 "minItems": 1,
@@ -668,7 +675,10 @@ def task_plan_tool_declaration() -> dict[str, Any]:
                                 "minimum": 1,
                                 "maximum": 5,
                             },
-                            "text": {"type": "string"},
+                            "text": {
+                                "type": "string",
+                                "maxLength": MAX_TYPED_TEXT_CHARACTERS,
+                            },
                             "seconds": {
                                 "type": "number",
                                 "minimum": 0.05,
@@ -687,6 +697,7 @@ def task_plan_tool_declaration() -> dict[str, Any]:
 __all__ = [
     "MAX_TASK_STEPS",
     "MAX_TOTAL_WAIT_SECONDS",
+    "MAX_TYPED_TEXT_CHARACTERS",
     "MAX_WAIT_SECONDS",
     "TaskOrchestrator",
     "TaskPlanError",

@@ -6,11 +6,11 @@ from PySide6.QtCore import (
     Property,
     QEasingCurve,
     QParallelAnimationGroup,
-    QPropertyAnimation,
     QPointF,
+    QPropertyAnimation,
     QRect,
-    QTimer,
     Qt,
+    QTimer,
     Signal,
 )
 from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter, QRadialGradient
@@ -38,8 +38,6 @@ from harvis.ui.theme import (
     APP_STYLESHEET,
     PRIMARY,
     SECONDARY,
-    TERTIARY,
-    TEXT_MUTED,
     TEXT_PRIMARY,
 )
 

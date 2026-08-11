@@ -123,6 +123,8 @@ Use harmless deterministic workflows for these checks:
 - [ ] Confirm a plan stops if a step raises an error instead of continuing into later actions.
 - [ ] Confirm a missing or low-confidence visual target stops the remaining plan safely.
 - [ ] Confirm a sensitive visual action pauses the plan for explicit confirmation instead of continuing automatically.
+- [ ] Confirm an AI-supplied confirmation flag cannot bypass the local user-confirmation guard.
+- [ ] Confirm one explicit user confirmation authorizes only one matching sensitive visual retry.
 - [ ] Confirm Harvis self-shutdown cannot be embedded inside an action plan.
 - [ ] Confirm a workflow that depends on an unknown newly revealed screen state can fall back to individual tools after the deterministic prefix instead of guessing the rest.
 
@@ -161,6 +163,8 @@ Then set `AI watermark` to `Off`:
 - [ ] Confirm saving an empty API-key field keeps the existing key.
 - [ ] Confirm replacing the API key restarts the assistant cleanly.
 - [ ] Confirm the Gemini API key does not appear in `settings.json`.
+- [ ] Confirm applications launched by Harvis do not inherit a saved Gemini API key through their environment.
+- [ ] Confirm an interrupted settings save preserves the previous valid settings file.
 - [ ] Confirm mobile remote enabled state and LAN port persist after restarting Harvis.
 - [ ] Confirm the remote pairing code and browser token are not written to `settings.json`.
 - [ ] Confirm all expected settings persist after restarting Harvis.
@@ -172,6 +176,7 @@ Then set `AI watermark` to `Off`:
 - [ ] Decide whether to add a project license before public distribution.
 - [ ] Confirm no API keys, secrets, logs, virtual environments, build folders, or personal temporary files are tracked.
 - [ ] Confirm all committed repository text is in English.
+- [ ] Confirm the Windows and Linux GitHub Actions jobs pass on the release commit.
 
 ## 13. GitHub release
 

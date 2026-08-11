@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import os
 import platform
+import tempfile
 from ctypes import wintypes
 from pathlib import Path
 
@@ -41,22 +43,16 @@ def save_gemini_api_key(api_key: str) -> None:
     else:
         _write_file_credential(_default_secret_path(), value)
 
-    os.environ[GEMINI_API_KEY_ENV] = value
-
 
 def sync_gemini_api_key_environment() -> bool:
-    """Load a persisted key into the current process for Gemini SDK consumers."""
+    """Return whether a Gemini API key is available without exporting it."""
 
     try:
         value = get_gemini_api_key()
     except CredentialStoreError:
         value = os.getenv(GEMINI_API_KEY_ENV, "").strip()
 
-    if not value:
-        return False
-
-    os.environ[GEMINI_API_KEY_ENV] = value
-    return True
+    return bool(value)
 
 
 def _default_secret_path() -> Path:
@@ -75,20 +71,34 @@ def _read_file_credential(path: Path) -> str:
 
 
 def _write_file_credential(path: Path, api_key: str) -> None:
+    temporary_path: Path | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        try:
+        with contextlib.suppress(OSError):
             path.parent.chmod(0o700)
-        except OSError:
-            pass
 
-        path.write_text(api_key, encoding="utf-8")
-        try:
+        descriptor, temporary_name = tempfile.mkstemp(
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            dir=path.parent,
+            text=True,
+        )
+        temporary_path = Path(temporary_name)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(api_key)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary_path.chmod(0o600)
+        os.replace(temporary_path, path)
+        temporary_path = None
+        with contextlib.suppress(OSError):
             path.chmod(0o600)
-        except OSError:
-            pass
     except OSError as exc:
         raise CredentialStoreError("Harvis could not save the Gemini API key.") from exc
+    finally:
+        if temporary_path is not None:
+            with contextlib.suppress(OSError):
+                temporary_path.unlink(missing_ok=True)
 
 
 class _CredentialW(ctypes.Structure):

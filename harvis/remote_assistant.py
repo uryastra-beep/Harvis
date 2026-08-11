@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from collections import deque
@@ -10,6 +11,7 @@ from harvis.actions.system import SystemActionError
 from harvis.assistant import HarvisAssistant, HarvisGeminiLiveVoice
 
 REMOTE_AUDIO_BUFFER_MAX_BYTES = 24000 * 2 * 4
+REMOTE_STATUS_MAX_CHARACTERS = 8192
 SUPPORTED_REMOTE_AUDIO_OUTPUTS = {"pc", "phone", "both"}
 
 
@@ -53,10 +55,8 @@ class RemoteAudioHarvisGeminiLiveVoice(HarvisGeminiLiveVoice):
         target = self.audio_output_target
 
         if target in {"phone", "both"}:
-            try:
+            with contextlib.suppress(Exception):
                 self._on_remote_audio(scaled_audio)
-            except Exception:
-                pass
 
         if target in {"pc", "both"} and output_stream is not None:
             output_stream.write(scaled_audio)
@@ -106,6 +106,7 @@ class RemoteCapableHarvisAssistant(HarvisAssistant):
         if not command:
             raise ValueError("Remote command cannot be empty.")
 
+        self._record_visual_confirmation_response(command, complete_input=True)
         self._set_watermark_context(command)
         if not self._voice.send_text(command):
             raise SystemActionError("Harvis could not queue the remote command.")
@@ -178,18 +179,19 @@ class RemoteCapableHarvisAssistant(HarvisAssistant):
 
     def _handle_output_transcript(self, text: str) -> None:
         with self._remote_state_lock:
-            self._remote_last_response = str(text)
+            self._remote_last_response = str(text)[-REMOTE_STATUS_MAX_CHARACTERS:]
         super()._handle_output_transcript(text)
 
     def _notify_status(self, status: str) -> None:
         with self._remote_state_lock:
-            self._remote_last_status = str(status)
+            self._remote_last_status = str(status)[-REMOTE_STATUS_MAX_CHARACTERS:]
         super()._notify_status(status)
 
 
 __all__ = [
     "REMOTE_AUDIO_BUFFER_MAX_BYTES",
+    "REMOTE_STATUS_MAX_CHARACTERS",
+    "SUPPORTED_REMOTE_AUDIO_OUTPUTS",
     "RemoteAudioHarvisGeminiLiveVoice",
     "RemoteCapableHarvisAssistant",
-    "SUPPORTED_REMOTE_AUDIO_OUTPUTS",
 ]

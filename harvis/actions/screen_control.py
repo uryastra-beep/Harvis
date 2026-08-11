@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from harvis.actions.system import SystemActionError
+from harvis.credentials import get_gemini_api_key
 
 VISION_MODEL = os.getenv("HARVIS_VISION_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
 VISION_CONFIDENCE_THRESHOLD = 0.72
@@ -197,7 +198,7 @@ def capture_full_screen() -> ScreenCapture:
 
 
 def locate_visual_target(capture: ScreenCapture, target: str) -> VisionTarget:
-    api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    api_key = get_gemini_api_key()
     if not api_key:
         raise SystemActionError(
             "GEMINI_API_KEY is not configured, so Harvis cannot analyze the screen."

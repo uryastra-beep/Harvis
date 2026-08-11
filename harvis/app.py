@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from PySide6.QtCore import QObject, QTimer, Qt, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -20,14 +20,13 @@ from harvis.config import (
     REMOTE_CONTROL_PORT_MIN,
     SUPPORTED_ASSISTANT_MODES,
     SUPPORTED_SPEECH_LANGUAGES,
-    SettingsStore,
     USER_NAME_MAX_LENGTH,
+    SettingsStore,
 )
 from harvis.credentials import (
     CredentialStoreError,
     get_gemini_api_key,
     save_gemini_api_key,
-    sync_gemini_api_key_environment,
 )
 from harvis.remote_assistant import RemoteCapableHarvisAssistant
 from harvis.remote_control import RemoteControlServer
@@ -624,8 +623,6 @@ def main() -> int:
             print(f"[Harvis] Single-instance startup failed: {exc}", flush=True)
             return 1
         app.aboutToQuit.connect(instance_coordinator.close)
-
-    sync_gemini_api_key_environment()
 
     settings_store = SettingsStore()
     assistant: RemoteCapableHarvisAssistant | None = None

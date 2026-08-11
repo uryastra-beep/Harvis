@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+
+from harvis import config
 from harvis.config import HarvisSettings, SettingsStore
 
 
@@ -75,3 +78,23 @@ def test_remote_control_defaults_to_disabled_for_existing_settings(tmp_path: Pat
 
     assert loaded.remote_control_enabled is False
     assert loaded.remote_control_port == 8765
+
+
+def test_failed_atomic_save_preserves_previous_settings(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "settings.json"
+    store = SettingsStore(config_path)
+    store.save(HarvisSettings(user_name="Before"))
+
+    def fail_replace(source, destination) -> None:
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr(config.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="simulated replace failure"):
+        store.save(HarvisSettings(user_name="After"))
+
+    assert store.load().user_name == "Before"
+    assert list(tmp_path.glob(".settings.json.*.tmp")) == []

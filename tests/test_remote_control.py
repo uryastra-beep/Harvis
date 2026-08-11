@@ -6,7 +6,7 @@ import urllib.request
 
 import pytest
 
-from harvis.remote_control import RemoteControlServer
+from harvis.remote_control import MAX_REMOTE_COMMAND_CHARACTERS, RemoteControlServer
 
 
 def _request(
@@ -131,7 +131,7 @@ def test_remote_microphone_toggle_uses_authenticated_callback() -> None:
 
     server = RemoteControlServer(
         command_handler=lambda command: None,
-        status_provider=lambda: {},
+        status_provider=dict,
         microphone_toggle_handler=toggle,
         port=0,
     )
@@ -163,7 +163,32 @@ def test_remote_rejects_invalid_port() -> None:
     with pytest.raises(ValueError):
         RemoteControlServer(
             command_handler=lambda command: None,
-            status_provider=lambda: {},
+            status_provider=dict,
             microphone_toggle_handler=lambda: False,
             port=70000,
         )
+
+
+def test_remote_rejects_oversized_authenticated_command() -> None:
+    server, commands = _server()
+    try:
+        url = f"http://127.0.0.1:{server.port}"
+        _, pair_body = _request(
+            url,
+            "/api/pair",
+            method="POST",
+            payload={"code": server.pairing_code},
+        )
+        status_code, body = _request(
+            url,
+            "/api/command",
+            method="POST",
+            payload={"command": "x" * (MAX_REMOTE_COMMAND_CHARACTERS + 1)},
+            token=pair_body["token"],
+        )
+
+        assert status_code == 413
+        assert body["error"] == "Command is too long."
+        assert commands == []
+    finally:
+        server.stop()

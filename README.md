@@ -207,7 +207,9 @@ Gemini Vision
 
 The local locator combines several sources of evidence, including accessibility information, local text or location evidence, OpenCV matching, and visual heuristics. It does not perform random low-confidence clicks.
 
-Consequential or destructive visual targets require explicit confirmation before Harvis clicks them.
+Consequential or destructive visual targets require explicit confirmation before Harvis clicks them. The local
+runtime records a real subsequent user response and grants a single matching retry; a confirmation value supplied
+only by the AI cannot bypass this guard.
 
 ## AI authorship watermark
 
@@ -235,11 +237,13 @@ This keeps the marker useful as a lightweight authorship identifier without cont
 
 Harvis supports entering the Gemini API key directly in `Settings > AI`.
 
-On Windows, the key is stored in Windows Credential Manager under the Harvis credential target. On Linux, Harvis stores it in a user-only configuration file and attempts to apply restrictive filesystem permissions.
+On Windows, the key is stored in Windows Credential Manager under the Harvis credential target. On Linux, Harvis stores it in an atomically replaced user-only configuration file with restrictive filesystem permissions.
 
 Harvis can also fall back to the `GEMINI_API_KEY` environment variable.
 
-The API key is never written to `settings.json` or intended to be committed to the repository.
+The API key is never written to `settings.json` or intended to be committed to the repository. Harvis reads the key
+directly from its credential provider instead of exporting a saved key into the process environment, preventing
+applications launched by Harvis from inheriting it.
 
 ## Voice and remote architecture
 
@@ -429,6 +433,9 @@ python -m pytest
 ```
 
 The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, guarded long-workflow readiness, paired mobile remote control, mobile voice routing, authenticated remote audio retrieval, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
+
+GitHub Actions runs the complete test suite, dependency verification, and Python compilation checks on both Windows
+and Linux for every push to `main` and every pull request.
 
 ## Current limitations
 

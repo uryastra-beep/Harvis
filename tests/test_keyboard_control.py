@@ -3,7 +3,10 @@ from __future__ import annotations
 import pytest
 
 from harvis.actions import keyboard_control
-from harvis.actions.keyboard_control import _normalize_text_payload, _validate_text_payload
+from harvis.actions.keyboard_control import (
+    _normalize_text_payload,
+    _validate_text_payload,
+)
 from harvis.actions.system import SystemActionError
 from harvis.assistant import HarvisGeminiLiveVoice
 
@@ -22,6 +25,13 @@ def test_typing_guard_rejects_corrupted_punctuation_runs() -> None:
 def test_typing_guard_rejects_invalid_unicode_replacement_character() -> None:
     with pytest.raises(SystemActionError, match="invalid characters"):
         _validate_text_payload("Hola \ufffd")
+
+
+def test_typing_guard_rejects_oversized_payload() -> None:
+    with pytest.raises(SystemActionError, match="character safety limit"):
+        _validate_text_payload(
+            "x" * (keyboard_control.MAX_TEXT_CHARACTERS + 1)
+        )
 
 
 def test_literal_newline_escape_is_preserved_as_text() -> None:
@@ -180,6 +190,13 @@ def test_type_lines_applies_watermark_only_to_first_nonempty_line(monkeypatch) -
 def test_type_lines_rejects_embedded_newline() -> None:
     with pytest.raises(ValueError, match="exactly one line"):
         keyboard_control.type_lines(["hola\nhola"])
+
+
+def test_type_lines_rejects_oversized_total_payload() -> None:
+    with pytest.raises(ValueError, match="total characters"):
+        keyboard_control.type_lines(
+            ["x" * 30_000, "y" * 30_000]
+        )
 
 
 def test_gemini_registers_keyboard_tools() -> None:

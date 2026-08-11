@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-
 
 SUPPORTED_SPEECH_LANGUAGES = {
     "es-419": "Spanish (Latin America)",
@@ -33,7 +34,7 @@ class HarvisSettings:
     remote_control_enabled: bool = False
     remote_control_port: int = 8765
 
-    def normalized(self) -> "HarvisSettings":
+    def normalized(self) -> HarvisSettings:
         normalized_name = " ".join(str(self.user_name).split()).strip()
         self.user_name = normalized_name[:USER_NAME_MAX_LENGTH] or "User"
         self.voice_volume = max(0, min(100, int(self.voice_volume)))
@@ -101,7 +102,23 @@ class SettingsStore:
     def save(self, settings: HarvisSettings) -> None:
         normalized = settings.normalized()
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
-        self.config_path.write_text(
-            json.dumps(asdict(normalized), indent=2, ensure_ascii=True) + "\n",
-            encoding="utf-8",
-        )
+        payload = json.dumps(asdict(normalized), indent=2, ensure_ascii=True) + "\n"
+        temporary_path: Path | None = None
+        try:
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{self.config_path.name}.",
+                suffix=".tmp",
+                dir=self.config_path.parent,
+                text=True,
+            )
+            temporary_path = Path(temporary_name)
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_path, self.config_path)
+            temporary_path = None
+        finally:
+            if temporary_path is not None:
+                with contextlib.suppress(OSError):
+                    temporary_path.unlink(missing_ok=True)
