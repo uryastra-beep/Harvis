@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import io
 import platform
+import time
 from ctypes import wintypes
 from typing import Any
 
@@ -27,6 +28,8 @@ from harvis.actions.vision_locator import (
 )
 
 VISION_SCREENSHOT_MAX_DIMENSION = 3200
+SCREEN_STABILITY_TIMEOUT_SECONDS = 6.0
+VISUAL_TARGET_TIMEOUT_SECONDS = 10.0
 
 
 def capture_full_screen() -> ScreenCapture:
@@ -39,6 +42,164 @@ def capture_preferred_screen() -> ScreenCapture:
     """Capture the display under the pointer for higher UI-detail accuracy."""
 
     return _capture_with_mss(preferred_monitor=True)
+
+
+def wait_for_screen_stable(
+    *,
+    timeout_seconds: float = SCREEN_STABILITY_TIMEOUT_SECONDS,
+    sample_interval: float = 0.35,
+    required_stable_samples: int = 2,
+    difference_threshold: float = 3.0,
+) -> dict[str, Any]:
+    """Wait until consecutive desktop captures indicate that the visible UI settled."""
+
+    timeout = max(0.5, min(15.0, float(timeout_seconds)))
+    interval = max(0.15, min(1.0, float(sample_interval)))
+    required = max(1, min(5, int(required_stable_samples)))
+    threshold = max(0.0, min(32.0, float(difference_threshold)))
+    deadline = time.monotonic() + timeout
+    previous_signature: tuple[int, ...] | None = None
+    stable_samples = 0
+    samples = 0
+    last_difference: float | None = None
+
+    while True:
+        try:
+            capture = capture_full_screen()
+            signature = _screen_signature(capture)
+        except Exception as exc:
+            return {
+                "status": "screen_unavailable",
+                "error": str(exc),
+                "samples": samples,
+            }
+
+        samples += 1
+        if previous_signature is not None:
+            last_difference = _signature_difference(previous_signature, signature)
+            if last_difference <= threshold:
+                stable_samples += 1
+            else:
+                stable_samples = 0
+
+            if stable_samples >= required:
+                return {
+                    "status": "completed",
+                    "stable": True,
+                    "samples": samples,
+                    "difference": round(last_difference, 3),
+                }
+
+        previous_signature = signature
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {
+                "status": "screen_unstable",
+                "stable": False,
+                "samples": samples,
+                "difference": (
+                    None if last_difference is None else round(last_difference, 3)
+                ),
+            }
+
+        time.sleep(min(interval, remaining))
+
+
+def wait_for_visual_target(
+    target: str,
+    *,
+    timeout_seconds: float = VISUAL_TARGET_TIMEOUT_SECONDS,
+    poll_seconds: float = 1.25,
+) -> dict[str, Any]:
+    """Wait for a visible target without clicking it, stopping after a bounded timeout."""
+
+    target_text = str(target).strip()
+    if not target_text:
+        raise ValueError("wait_for_visual_target requires a target description.")
+
+    timeout = max(1.0, min(15.0, float(timeout_seconds)))
+    poll = max(0.5, min(3.0, float(poll_seconds)))
+    deadline = time.monotonic() + timeout
+    attempts = 0
+    cloud_failures = 0
+    best_found = False
+    best_confidence = 0.0
+    best_description = "Could not find it."
+    best_locator = "gemini+local"
+
+    while True:
+        attempts += 1
+        capture = capture_full_screen()
+
+        try:
+            cloud_target = locate_visual_target(capture, target_text)
+            if cloud_target.found and cloud_target.confidence > best_confidence:
+                best_found = True
+                best_confidence = cloud_target.confidence
+                best_description = cloud_target.description
+                best_locator = "gemini"
+            if _is_confident_target(cloud_target):
+                screen_x, screen_y = _normalized_to_screen(
+                    cloud_target.x_1000,
+                    cloud_target.y_1000,
+                    capture,
+                )
+                return {
+                    "status": "found",
+                    "target": target_text,
+                    "found": True,
+                    "confidence": round(cloud_target.confidence, 3),
+                    "description": cloud_target.description,
+                    "locator": "gemini",
+                    "x": screen_x,
+                    "y": screen_y,
+                    "attempts": attempts,
+                    "waited_seconds": round(timeout - max(0.0, deadline - time.monotonic()), 2),
+                }
+        except Exception:
+            cloud_failures += 1
+
+        local_target = locate_local_target(capture, target_text)
+        if local_target.found and local_target.confidence > best_confidence:
+            best_found = True
+            best_confidence = local_target.confidence
+            best_description = local_target.description
+            best_locator = "local"
+        if _is_confident_local_target(local_target):
+            return {
+                "status": "found",
+                "target": target_text,
+                "found": True,
+                "confidence": round(local_target.confidence, 3),
+                "description": local_target.description,
+                "locator": "local",
+                "methods": list(local_target.methods),
+                "x": local_target.x,
+                "y": local_target.y,
+                "attempts": attempts,
+                "waited_seconds": round(timeout - max(0.0, deadline - time.monotonic()), 2),
+            }
+
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            if best_found:
+                status = "low_confidence"
+            elif cloud_failures == attempts:
+                status = "vision_unavailable"
+            else:
+                status = "not_found"
+            return {
+                "status": status,
+                "target": target_text,
+                "found": best_found,
+                "confidence": round(best_confidence, 3),
+                "description": best_description,
+                "locator": best_locator,
+                "attempts": attempts,
+                "waited_seconds": round(timeout, 2),
+            }
+
+        time.sleep(min(poll, remaining))
 
 
 def vision_click(
@@ -369,6 +530,28 @@ def _capture_with_mss(*, preferred_monitor: bool) -> ScreenCapture:
     )
 
 
+def _screen_signature(capture: ScreenCapture) -> tuple[int, ...]:
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise SystemActionError(
+            "Pillow is required for Harvis screen stability checks."
+        ) from exc
+
+    with Image.open(io.BytesIO(capture.image_bytes)) as image:
+        reduced = image.convert("L").resize((48, 27))
+        return tuple(int(value) for value in reduced.getdata())
+
+
+def _signature_difference(
+    first: tuple[int, ...],
+    second: tuple[int, ...],
+) -> float:
+    if not first or len(first) != len(second):
+        return 255.0
+    return sum(abs(left - right) for left, right in zip(first, second)) / len(first)
+
+
 def _pointer_position() -> tuple[int, int] | None:
     if platform.system() == "Windows":
         point = wintypes.POINT()
@@ -436,8 +619,12 @@ def _is_confident_target(target: VisionTarget) -> bool:
 
 
 __all__ = [
+    "SCREEN_STABILITY_TIMEOUT_SECONDS",
+    "VISUAL_TARGET_TIMEOUT_SECONDS",
     "capture_full_screen",
     "capture_preferred_screen",
     "move_pointer",
     "vision_click",
+    "wait_for_screen_stable",
+    "wait_for_visual_target",
 ]
