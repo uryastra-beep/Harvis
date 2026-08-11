@@ -69,7 +69,7 @@ Harvis can expose a small responsive controller to phones and tablets on the sam
 
 To enable it:
 
-1. Open Settings > General.
+1. Open Settings > Advanced.
 2. Set `Remote control` to `On`.
 3. Keep the default LAN port or choose another port between 1024 and 65535.
 4. Save settings.
