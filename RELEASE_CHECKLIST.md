@@ -85,7 +85,26 @@ Test representative actions without using sensitive or destructive targets:
 - [ ] Type a short Unicode sentence with punctuation.
 - [ ] Type a multi-line sequence that uses physical Enter presses correctly.
 
-## 7. Multi-step task orchestration
+## 7. Mobile remote control
+
+Use a phone or tablet connected to the same trusted local network as the Harvis computer:
+
+- [ ] Confirm mobile remote control is `Off` by default for an existing or fresh settings file.
+- [ ] Enable Settings > General > `Remote control`, save settings, and confirm a phone URL and six-digit pairing code appear.
+- [ ] Open the phone URL and confirm the responsive Harvis Remote page loads.
+- [ ] Confirm an incorrect pairing code is rejected.
+- [ ] Pair with the displayed code and confirm authenticated status polling begins.
+- [ ] Send a harmless text command from the phone while Harvis is in Speaking mode and confirm the same Gemini Live assistant handles it.
+- [ ] Switch to Silent mode and confirm a paired phone command still reaches Harvis.
+- [ ] Confirm the mobile page displays the latest Harvis status and response transcript.
+- [ ] In Speaking mode, mute and unmute the microphone from the phone and confirm both actual microphone forwarding and the Sphere indicator stay in sync.
+- [ ] Confirm the microphone control is unavailable or rejected in Silent mode.
+- [ ] Change the configured remote port and confirm the server restarts on the new port with a new pairing code and browser token.
+- [ ] Restart Harvis and confirm the previous browser token no longer authorizes requests until the phone pairs again.
+- [ ] Confirm disabling remote control stops the local server.
+- [ ] Confirm no router port forwarding is required and do not expose the remote-control port to the public Internet.
+
+## 8. Multi-step task orchestration
 
 Use harmless deterministic workflows for these checks:
 
@@ -107,7 +126,7 @@ Use harmless deterministic workflows for these checks:
 - [ ] Confirm Harvis self-shutdown cannot be embedded inside an action plan.
 - [ ] Confirm a workflow that depends on an unknown newly revealed screen state can fall back to individual tools after the deterministic prefix instead of guessing the rest.
 
-## 8. Visual interaction
+## 9. Visual interaction
 
 - [ ] Confirm Gemini Vision can locate and click a harmless visible target when cloud vision is available.
 - [ ] Confirm the local locator can complete a harmless visual action when Gemini Vision is unavailable or fails.
@@ -121,7 +140,7 @@ Expected locator order:
 Gemini Vision -> Local fallback -> Gemini Vision retry -> safe failure
 ```
 
-## 9. AI watermark
+## 10. AI watermark
 
 With Settings > AI > `AI watermark` set to `On`:
 
@@ -130,20 +149,23 @@ With Settings > AI > `AI watermark` set to `On`:
 - [ ] Perform a search and confirm the query does not receive the marker.
 - [ ] Enter or open a URL and confirm it does not receive the marker.
 - [ ] Perform navigation or browser-field entry and confirm it does not receive the marker.
+- [ ] Send an authored-writing request from the paired mobile page and confirm it follows the same watermark behavior.
 
 Then set `AI watermark` to `Off`:
 
 - [ ] Confirm authored text is written without the marker.
 
-## 10. Credentials and settings
+## 11. Credentials and settings
 
 - [ ] Confirm Settings > AI shows the Gemini API key as configured without revealing it.
 - [ ] Confirm saving an empty API-key field keeps the existing key.
 - [ ] Confirm replacing the API key restarts the assistant cleanly.
 - [ ] Confirm the Gemini API key does not appear in `settings.json`.
+- [ ] Confirm mobile remote enabled state and LAN port persist after restarting Harvis.
+- [ ] Confirm the remote pairing code and browser token are not written to `settings.json`.
 - [ ] Confirm all expected settings persist after restarting Harvis.
 
-## 11. Repository review
+## 12. Repository review
 
 - [ ] Review `README.md` for accuracy.
 - [ ] Review `RELEASE_NOTES.md` and replace `vX.Y.Z` with the chosen release version.
@@ -151,7 +173,7 @@ Then set `AI watermark` to `Off`:
 - [ ] Confirm no API keys, secrets, logs, virtual environments, build folders, or personal temporary files are tracked.
 - [ ] Confirm all committed repository text is in English.
 
-## 12. GitHub release
+## 13. GitHub release
 
 - [ ] Choose the final semantic version and tag.
 - [ ] Use the updated `RELEASE_NOTES.md` as the basis for the GitHub release description.
