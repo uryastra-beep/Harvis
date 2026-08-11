@@ -11,6 +11,7 @@ The project currently focuses on Windows while keeping the architecture portable
 - Speaking and Silent interaction modes.
 - Desktop control through approved local tools.
 - Multi-step task orchestration for long single-instruction workflows.
+- Automatic screen-stability and visible-target readiness guards for workflows with more than two steps.
 - Application discovery and launch support.
 - Browser, media, volume, keyboard, mouse, scrolling, and self-shutdown actions.
 - Visual clicking with Gemini Vision plus a local fallback stack.
@@ -81,15 +82,19 @@ Harvis self-shutdown only closes Harvis. It does not shut down, restart, sleep, 
 
 ## Multi-step task orchestration
 
-Harvis includes a bounded task-orchestration layer for long requests that contain several ordered computer actions. Gemini can turn one instruction into a single `execute_action_plan` call instead of improvising a loose chain of unrelated tool calls.
+Harvis includes a bounded task-orchestration layer for long requests that contain several ordered computer actions. Gemini can turn one instruction into a single `execute_action_plan` call instead of improvising a loose chain of unrelated tool calls. The tool declaration explicitly asks Gemini to use this path whenever a request contains more than two ordered desktop actions.
 
 The orchestrator validates the complete plan before the first action runs, preserves the requested order, and can execute up to 24 approved steps. Supported plan actions include application launching and closing, URLs, volume changes, browser and media controls, pointer movement, scrolling, typing, physical Enter presses, visual clicks, and short waits for an application or page to settle.
 
-Wait steps are intentionally bounded to 5 seconds each and 15 seconds total per plan. Harvis self-shutdown is not allowed inside an action plan.
+Plans with more than two steps are guarded automatically. After actions that can change the visible UI, Harvis repeatedly samples the desktop and waits for the screen to become visually stable before the next step is allowed to run. One-step and two-step plans intentionally skip these additional checks so short commands remain responsive.
 
-The plan stops safely when a step raises an error, a visual target is missing or too uncertain, or a visual action requires explicit confirmation. Workflows whose next action depends on an unknown new screen state should use the deterministic plan only for the predictable prefix, then continue with individual tools after observing the returned state.
+A step can include `ready_target` when it depends on a specific visible button, field, icon, text label, or UI state. Harvis waits until that target can be located confidently before it runs the dependent step. `vision_click` steps receive this protection automatically using their own click target, even when `ready_target` is omitted. If the screen never becomes stable, the requested target does not appear, target confidence stays too low, or vision becomes unavailable, Harvis stops the remaining plan instead of continuing against an unknown UI state.
 
-This layer is meant for requests such as opening an application, waiting briefly for it to load, typing several pieces of content, pressing Enter, changing another setting, and continuing through a known ordered sequence from one user instruction.
+Screen-stability checks use a bounded six-second window by default. Visible readiness targets use a ten-second default and can be configured up to fifteen seconds per checkpoint. Explicit `wait` steps remain bounded to 5 seconds each and 15 seconds total per plan. Harvis self-shutdown is not allowed inside an action plan.
+
+The plan also stops safely when a step raises an error or a visual action requires explicit confirmation. Workflows whose next action depends on an unknown new screen state should use the deterministic plan only for the predictable prefix, then continue with individual tools after observing the returned state.
+
+This layer is meant for requests such as opening an application, waiting for it to become ready, confirming that the expected editor or button is visible, typing several pieces of content, pressing Enter, changing another setting, and continuing through a known ordered sequence from one user instruction.
 
 ## Visual interaction
 
@@ -312,12 +317,13 @@ Run the test suite with:
 python -m pytest
 ```
 
-The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
+The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, guarded long-workflow readiness, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
 
 ## Current limitations
 
 - Gemini Live and Gemini Vision require network access and are subject to the limits of the configured Google API project.
-- Multi-step action plans intentionally stop when a visual step becomes uncertain or requires confirmation; they do not guess through unknown UI states.
+- Multi-step action plans intentionally stop when the screen does not settle, a required readiness target cannot be found confidently, a visual step becomes uncertain, or confirmation is required; they do not guess through unknown UI states.
+- Screen-stability detection is a visual heuristic, so highly animated desktops can take longer to settle or can stop a guarded plan safely.
 - Local visual detection is a fallback and cannot guarantee recognition of every interface.
 - Some Linux desktop-control features depend on X11-compatible tools such as `xdotool`; Wayland support is not complete.
 - Windows is currently the most heavily tested platform.
