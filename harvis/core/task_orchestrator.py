@@ -4,12 +4,21 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from harvis.actions.visual_control import (
+    SCREEN_STABILITY_TIMEOUT_SECONDS,
+    VISUAL_TARGET_TIMEOUT_SECONDS,
+    wait_for_screen_stable,
+    wait_for_visual_target,
+)
+
 MAX_TASK_STEPS = 24
 MAX_WAIT_SECONDS = 5.0
 MAX_TOTAL_WAIT_SECONDS = 15.0
 
 TaskExecutor = Callable[[str, dict[str, Any]], dict[str, Any]]
 StatusCallback = Callable[[str], None]
+ScreenStabilityChecker = Callable[..., dict[str, Any]]
+VisualTargetWaiter = Callable[..., dict[str, Any]]
 
 _ALLOWED_ACTIONS = frozenset(
     {
@@ -34,6 +43,23 @@ _STOP_STATUSES = frozenset(
         "not_found",
         "low_confidence",
         "vision_unavailable",
+        "screen_unavailable",
+        "screen_unstable",
+    }
+)
+
+_SCREEN_TRANSITION_ACTIONS = frozenset(
+    {
+        "open_url",
+        "open_application",
+        "close_application",
+        "browser_control",
+        "move_pointer",
+        "scroll_view",
+        "vision_click",
+        "type_lines",
+        "press_key",
+        "type_text",
     }
 )
 
@@ -77,23 +103,29 @@ class TaskPlanError(ValueError):
 
 
 class TaskOrchestrator:
-    """Validate and execute bounded deterministic desktop action plans."""
+    """Validate and execute bounded desktop plans with visual readiness guards."""
 
     def __init__(
         self,
         *,
         executor: TaskExecutor,
         on_status: StatusCallback | None = None,
+        screen_stability_checker: ScreenStabilityChecker = wait_for_screen_stable,
+        visual_target_waiter: VisualTargetWaiter = wait_for_visual_target,
     ) -> None:
         self._executor = executor
         self._on_status = on_status
+        self._screen_stability_checker = screen_stability_checker
+        self._visual_target_waiter = visual_target_waiter
 
     def execute(self, steps: list[dict[str, Any]]) -> dict[str, Any]:
-        """Execute a validated action plan in order and stop safely on uncertainty."""
+        """Execute a validated action plan and stop safely when the UI is not ready."""
 
         normalized_steps = self._normalize_plan(steps)
         total_steps = len(normalized_steps)
+        guarded_plan = total_steps > 2
         results: list[dict[str, Any]] = []
+        checkpoints: list[dict[str, Any]] = []
 
         self._notify_status(f"Task plan started: {total_steps} steps")
 
@@ -124,6 +156,7 @@ class TaskOrchestrator:
                     "failed_action": action,
                     "error": str(exc),
                     "results": results,
+                    "checkpoints": checkpoints,
                 }
 
             step_result = {
@@ -144,6 +177,7 @@ class TaskOrchestrator:
                     "pending_step": index,
                     "pending_action": action,
                     "results": results,
+                    "checkpoints": checkpoints,
                 }
 
             if result_status in _STOP_STATUSES:
@@ -156,7 +190,21 @@ class TaskOrchestrator:
                     "stopped_step": index,
                     "stopped_action": action,
                     "results": results,
+                    "checkpoints": checkpoints,
                 }
+
+            if guarded_plan and index < total_steps:
+                checkpoint_stop = self._guard_transition(
+                    completed_step=index,
+                    completed_action=action,
+                    next_step=normalized_steps[index],
+                    total_steps=total_steps,
+                    checkpoints=checkpoints,
+                )
+                if checkpoint_stop is not None:
+                    checkpoint_stop["results"] = results
+                    checkpoint_stop["checkpoints"] = checkpoints
+                    return checkpoint_stop
 
         self._notify_status("Task plan completed")
         return {
@@ -164,7 +212,108 @@ class TaskOrchestrator:
             "steps_total": total_steps,
             "steps_completed": total_steps,
             "results": results,
+            "checkpoints": checkpoints,
         }
+
+    def _guard_transition(
+        self,
+        *,
+        completed_step: int,
+        completed_action: str,
+        next_step: dict[str, Any],
+        total_steps: int,
+        checkpoints: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        next_action = next_step["action"]
+        ready_target = str(next_step.get("ready_target", "")).strip()
+        ready_timeout = float(
+            next_step.get("ready_timeout", VISUAL_TARGET_TIMEOUT_SECONDS)
+        )
+
+        if not ready_target and next_action == "vision_click":
+            ready_target = str(next_step["arguments"].get("target", "")).strip()
+
+        should_check_stability = (
+            completed_action in _SCREEN_TRANSITION_ACTIONS or bool(ready_target)
+        )
+
+        if should_check_stability:
+            self._notify_status(
+                f"Checking screen readiness before step {completed_step + 1}/{total_steps}"
+            )
+            try:
+                stability = self._screen_stability_checker(
+                    timeout_seconds=SCREEN_STABILITY_TIMEOUT_SECONDS
+                )
+            except Exception as exc:
+                stability = {
+                    "status": "screen_unavailable",
+                    "error": str(exc),
+                }
+
+            checkpoints.append(
+                {
+                    "after_step": completed_step,
+                    "type": "screen_stability",
+                    "result": stability,
+                }
+            )
+            stability_status = str(stability.get("status", "completed")).strip().lower()
+            if stability_status != "completed":
+                self._notify_status(
+                    f"Task plan stopped before step {completed_step + 1}: screen not ready"
+                )
+                return {
+                    "status": "stopped",
+                    "reason": stability_status or "screen_unstable",
+                    "steps_total": total_steps,
+                    "steps_completed": completed_step,
+                    "stopped_step": completed_step + 1,
+                    "stopped_action": next_action,
+                    "checkpoint_after_step": completed_step,
+                }
+
+        if ready_target:
+            self._notify_status(
+                f"Waiting for on-screen target before step {completed_step + 1}: {ready_target}"
+            )
+            try:
+                target_result = self._visual_target_waiter(
+                    ready_target,
+                    timeout_seconds=ready_timeout,
+                )
+            except Exception as exc:
+                target_result = {
+                    "status": "vision_unavailable",
+                    "target": ready_target,
+                    "error": str(exc),
+                }
+
+            checkpoints.append(
+                {
+                    "after_step": completed_step,
+                    "type": "visual_target",
+                    "target": ready_target,
+                    "result": target_result,
+                }
+            )
+            target_status = str(target_result.get("status", "")).strip().lower()
+            if target_status != "found":
+                self._notify_status(
+                    f"Task plan stopped before step {completed_step + 1}: target not ready"
+                )
+                return {
+                    "status": "stopped",
+                    "reason": target_status or "not_found",
+                    "steps_total": total_steps,
+                    "steps_completed": completed_step,
+                    "stopped_step": completed_step + 1,
+                    "stopped_action": next_action,
+                    "checkpoint_after_step": completed_step,
+                    "missing_target": ready_target,
+                }
+
+        return None
 
     def _normalize_plan(self, steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if not isinstance(steps, list):
@@ -197,12 +346,28 @@ class TaskOrchestrator:
                         "Task plan wait time exceeds the allowed total wait budget."
                     )
 
-            normalized.append(
-                {
-                    "action": action,
-                    "arguments": arguments,
-                }
-            )
+            normalized_step: dict[str, Any] = {
+                "action": action,
+                "arguments": arguments,
+            }
+
+            if "ready_target" in raw_step:
+                normalized_step["ready_target"] = self._required_text(
+                    raw_step,
+                    "ready_target",
+                    index=index,
+                )
+
+            if "ready_timeout" in raw_step:
+                normalized_step["ready_timeout"] = self._bounded_float(
+                    raw_step,
+                    "ready_timeout",
+                    index=index,
+                    minimum=1.0,
+                    maximum=15.0,
+                )
+
+            normalized.append(normalized_step)
 
         return normalized
 
@@ -323,16 +488,13 @@ class TaskOrchestrator:
                 raise TaskPlanError(
                     f"Task plan step {index} requires seconds."
                 )
-            try:
-                seconds = float(step["seconds"])
-            except (TypeError, ValueError) as exc:
-                raise TaskPlanError(
-                    f"Task plan step {index} seconds must be numeric."
-                ) from exc
-            if not 0.05 <= seconds <= MAX_WAIT_SECONDS:
-                raise TaskPlanError(
-                    f"Task plan step {index} wait must be between 0.05 and {MAX_WAIT_SECONDS:.1f} seconds."
-                )
+            seconds = self._bounded_float(
+                step,
+                "seconds",
+                index=index,
+                minimum=0.05,
+                maximum=MAX_WAIT_SECONDS,
+            )
             return {"seconds": seconds}
 
         raise TaskPlanError(f"Task plan step {index} is unsupported.")
@@ -381,6 +543,28 @@ class TaskOrchestrator:
             )
         return value
 
+    @staticmethod
+    def _bounded_float(
+        step: dict[str, Any],
+        field: str,
+        *,
+        index: int,
+        minimum: float,
+        maximum: float,
+    ) -> float:
+        try:
+            value = float(step[field])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise TaskPlanError(
+                f"Task plan step {index} {field} must be numeric."
+            ) from exc
+
+        if not minimum <= value <= maximum:
+            raise TaskPlanError(
+                f"Task plan step {index} {field} must be between {minimum:g} and {maximum:g}."
+            )
+        return value
+
     def _notify_status(self, status: str) -> None:
         callback = self._on_status
         if callback is not None:
@@ -388,15 +572,18 @@ class TaskOrchestrator:
 
 
 def task_plan_tool_declaration() -> dict[str, Any]:
-    """Return the Gemini function declaration for bounded multi-step workflows."""
+    """Return the Gemini declaration for visually guarded multi-step workflows."""
 
     return {
         "name": "execute_action_plan",
         "description": (
-            "Execute an ordered multi-step desktop workflow from one user instruction. Use this for long, "
-            "deterministic sequences that can be expressed with Harvis's approved local actions. The plan stops "
-            "on errors, uncertain visual results, or confirmation-required visual actions. Do not use it for "
-            "Harvis self-shutdown or when every next step depends on inspecting a new unknown screen state."
+            "Execute an ordered desktop workflow from one user instruction. Use this whenever the request contains "
+            "more than two ordered desktop actions. Plans with more than two steps automatically wait for the "
+            "visible screen to settle between UI-changing actions. Before a step that requires a specific visible "
+            "button, field, icon, text, or UI state, set ready_target to describe what must be visible. Harvis waits "
+            "for that target and stops instead of continuing if it never appears. vision_click steps are guarded "
+            "automatically by their click target even when ready_target is omitted. The plan also stops on errors, "
+            "uncertain visual results, or confirmation-required actions. Do not use it for Harvis self-shutdown."
         ),
         "parameters": {
             "type": "object",
@@ -405,7 +592,10 @@ def task_plan_tool_declaration() -> dict[str, Any]:
                     "type": "array",
                     "minItems": 1,
                     "maxItems": MAX_TASK_STEPS,
-                    "description": "Ordered actions to execute exactly in sequence.",
+                    "description": (
+                        "Ordered actions to execute exactly in sequence. For long workflows, add ready_target to a "
+                        "step when that step must wait for a specific visible UI element before it can safely run."
+                    ),
                     "items": {
                         "type": "object",
                         "properties": {
@@ -413,6 +603,21 @@ def task_plan_tool_declaration() -> dict[str, Any]:
                                 "type": "string",
                                 "enum": sorted(_ALLOWED_ACTIONS),
                                 "description": "Approved action for this step.",
+                            },
+                            "ready_target": {
+                                "type": "string",
+                                "description": (
+                                    "Optional visible UI element or state that must be confidently found before "
+                                    "this step may start. Use it for load-dependent steps."
+                                ),
+                            },
+                            "ready_timeout": {
+                                "type": "number",
+                                "minimum": 1.0,
+                                "maximum": 15.0,
+                                "description": (
+                                    "Maximum seconds to wait for ready_target. Defaults to 10 seconds."
+                                ),
                             },
                             "app_name": {"type": "string"},
                             "url": {"type": "string"},
