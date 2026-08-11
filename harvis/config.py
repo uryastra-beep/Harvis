@@ -13,6 +13,8 @@ SUPPORTED_SPEECH_LANGUAGES = {
 }
 SUPPORTED_ASSISTANT_MODES = ("Speaking", "Silent")
 USER_NAME_MAX_LENGTH = 48
+REMOTE_CONTROL_PORT_MIN = 1024
+REMOTE_CONTROL_PORT_MAX = 65535
 
 
 @dataclass(slots=True)
@@ -28,6 +30,8 @@ class HarvisSettings:
     visualizer_sensitivity: int = 60
     ai_provider: str = "Gemini Live"
     ai_watermark_enabled: bool = True
+    remote_control_enabled: bool = False
+    remote_control_port: int = 8765
 
     def normalized(self) -> "HarvisSettings":
         normalized_name = " ".join(str(self.user_name).split()).strip()
@@ -46,6 +50,18 @@ class HarvisSettings:
 
         if not isinstance(self.ai_watermark_enabled, bool):
             self.ai_watermark_enabled = True
+
+        if not isinstance(self.remote_control_enabled, bool):
+            self.remote_control_enabled = False
+
+        try:
+            remote_port = int(self.remote_control_port)
+        except (TypeError, ValueError):
+            remote_port = 8765
+        self.remote_control_port = max(
+            REMOTE_CONTROL_PORT_MIN,
+            min(REMOTE_CONTROL_PORT_MAX, remote_port),
+        )
 
         return self
 
