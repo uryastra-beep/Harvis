@@ -90,7 +90,7 @@ Test representative actions without using sensitive or destructive targets:
 Use a phone or tablet connected to the same trusted local network as the Harvis computer:
 
 - [ ] Confirm mobile remote control is `Off` by default for an existing or fresh settings file.
-- [ ] Enable Settings > General > `Remote control`, save settings, and confirm a phone URL and six-digit pairing code appear.
+- [ ] Enable Settings > Advanced > `Remote control`, save settings, and confirm a phone URL and six-digit pairing code appear.
 - [ ] Open the phone URL and confirm the responsive Harvis Remote page loads.
 - [ ] Confirm an incorrect pairing code is rejected.
 - [ ] Pair with the displayed code and confirm authenticated status polling begins.
