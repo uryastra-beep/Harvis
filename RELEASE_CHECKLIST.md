@@ -172,7 +172,7 @@ powershell -ExecutionPolicy Bypass -File .\build\build_exe.ps1
 - [ ] Confirm packaged Harvis can find its required dependencies.
 - [ ] Confirm no development API key or personal file is bundled into `dist\Harvis`.
 
-## 12. Windows installer
+## 12. Final Windows packages
 
 Run:
 
@@ -180,25 +180,29 @@ Run:
 powershell -ExecutionPolicy Bypass -File .\build\build_installer.ps1 -Version "1.0.0"
 ```
 
-Expected artifact:
+Expected artifacts:
 
 ```text
+dist\Harvis-1.0.0-Windows-x64-portable.zip
 dist\installer\Harvis-Setup-1.0.0-Windows-x64.exe
 ```
 
-- [ ] Confirm the installer is created with the expected name.
-- [ ] Install Harvis per-user.
+- [ ] Confirm both artifacts are created with the expected names.
+- [ ] Extract the portable ZIP to a clean temporary folder and launch `Harvis.exe` from the extracted copy.
+- [ ] Repeat a short Speaking, Silent, remote, and questionnaire smoke test from the extracted portable package.
+- [ ] Install Harvis with the setup executable.
 - [ ] Confirm the installed app launches.
 - [ ] Confirm optional desktop and startup shortcuts behave correctly.
 - [ ] Confirm uninstall completes cleanly.
-- [ ] Remember that the current installer is unsigned and can trigger SmartScreen or unknown-publisher warnings.
+- [ ] Remember that the current Windows artifacts are unsigned and can trigger SmartScreen or unknown-publisher warnings.
 
 ## 13. GitHub Windows package workflow
 
 - [ ] Run `Windows package` manually with version `1.0.0` or trigger it from the final `v1.0.0` tag.
 - [ ] Confirm the workflow build succeeds.
-- [ ] Download the `Harvis-Setup-1.0.0-Windows-x64` artifact.
-- [ ] Smoke-test the downloaded artifact, not only the locally built installer.
+- [ ] Download `Harvis-Setup-1.0.0-Windows-x64`.
+- [ ] Download `Harvis-1.0.0-Windows-x64-portable`.
+- [ ] Smoke-test the downloaded artifacts, not only the locally built copies.
 
 ## 14. Repository final review
 
@@ -216,10 +220,11 @@ Only after the applicable checks above are complete:
 - [ ] Create tag `v1.0.0` from the final release commit.
 - [ ] Create GitHub release `Harvis v1.0.0`.
 - [ ] Use `RELEASE_NOTES.md` as the release description basis.
-- [ ] Attach `Harvis-Setup-1.0.0-Windows-x64.exe` and any intended portable archive.
+- [ ] Attach `Harvis-1.0.0-Windows-x64-portable.zip`.
+- [ ] Attach `Harvis-Setup-1.0.0-Windows-x64.exe`.
 - [ ] Disclose that Windows artifacts are currently unsigned.
 - [ ] Publish the release manually.
 
 ## Release status
 
-Do not publish v1.0.0 until the automated suite, packaged-runtime smoke test, installer smoke test, and critical safety checks above have passed. Harvis should fail safely when visual confidence, questionnaire confidence, or confirmation requirements are not satisfied.
+Do not publish v1.0.0 until the automated suite, packaged-runtime smoke tests, installer smoke test, and critical safety checks above have passed. Harvis should fail safely when visual confidence, questionnaire confidence, or confirmation requirements are not satisfied.
