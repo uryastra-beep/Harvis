@@ -38,8 +38,7 @@ Harvis is a Python desktop personal assistant that combines Gemini Live conversa
 - A temporary ChatGPT questionnaire fallback when Gemini analysis is unavailable on Windows.
 - Reusable routines, JSON-only plugins, redacted activity history, and limited safe Undo.
 - Optional local Windows wake-word activation and a configurable active-session timeout.
-- System-tray controls for mode, microphone, NovaLens, Undo, and exit.
-- Local NovaLens companion commands for text questions, screen selection, and recent audio.
+- System-tray controls for mode, microphone, Undo, and exit.
 - GitHub release checks, a PyInstaller executable build, an Inno Setup installer, and a Windows packaging workflow.
 
 ### Local knowledge and automation
@@ -54,9 +53,7 @@ Harvis can find standard user-folder items by exact name and open them with the 
 
 Gemini Vision can briefly describe an exact-name local image. For visible questionnaires, Harvis fills only confident visible answers and never submits the form. When Gemini analysis is unavailable on Windows, a bounded temporary-ChatGPT fallback can copy visible question text, obtain structured answers, return to the form, and fill what it can locate. The user remains responsible for review and submission.
 
-### NovaLens, wake word, tray, and packaging
-
-Harvis and NovaLens can exchange bounded local requests without a network listener. Harvis can open NovaLens, ask it a text question, invoke its screen-region selector, or request recent-audio analysis.
+### Wake word, tray, and packaging
 
 Optional local wake-word mode uses Windows SAPI to recognize Harvis or Jarvis before opening the Gemini Live microphone session. System-tray controls keep common actions available when the Settings window is hidden.
 

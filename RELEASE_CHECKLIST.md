@@ -169,7 +169,7 @@ Then set `AI watermark` to `Off`:
 - [ ] Confirm the remote pairing code and browser token are not written to `settings.json`.
 - [ ] Confirm all expected settings persist after restarting Harvis.
 
-## 12. Local knowledge, files, questionnaires, and NovaLens
+## 12. Local knowledge, files, and questionnaires
 
 - [ ] Add, update, recall, and delete a non-secret memory from `Settings > Knowledge`.
 - [ ] Confirm a password, token, or API-key-like memory is rejected.
@@ -190,8 +190,7 @@ Then set `AI watermark` to `Off`:
 - [ ] Enable local wake word, say Harvis or Jarvis, and confirm Gemini connects only after local recognition.
 - [ ] Let the configured wake session expire and confirm Harvis returns to local wake-word listening.
 - [ ] Close Settings and confirm Harvis remains available from the system tray when enabled.
-- [ ] Test tray mode switching, microphone control, NovaLens opening, Undo, and full exit.
-- [ ] With compatible NovaLens code installed, test text questions, screen-region selection, and recent-audio analysis through the local bridge.
+- [ ] Test tray mode switching, microphone control, Undo, and full exit.
 - [ ] Run `build\build_exe.ps1` and smoke-test `dist\Harvis\Harvis.exe`.
 - [ ] Run `build\build_installer.ps1`, install per-user, test launch/uninstall, and verify optional shortcuts.
 - [ ] Run the `Windows package` workflow manually and download its installer artifact.

@@ -8,12 +8,12 @@ from harvis.features.routines import RoutineStore
 def test_memory_store_round_trip_and_forget(tmp_path) -> None:
     store = MemoryStore(tmp_path / "memory.json")
 
-    assert store.remember("NovaLens folder", "D:/Projects/NovaLens")["status"] == "remembered"
-    recalled = store.recall("novalens")
+    assert store.remember("Projects folder", "D:/Projects")["status"] == "remembered"
+    recalled = store.recall("projects")
 
     assert recalled["count"] == 1
-    assert recalled["memories"][0]["value"] == "D:/Projects/NovaLens"
-    assert store.forget("NovaLens folder")["status"] == "forgotten"
+    assert recalled["memories"][0]["value"] == "D:/Projects"
+    assert store.forget("Projects folder")["status"] == "forgotten"
     assert store.recall()["count"] == 0
 
 

@@ -28,10 +28,6 @@ def test_gemini_registers_next_generation_feature_tools() -> None:
         "undo_last_action",
         "list_plugins",
         "run_plugin",
-        "open_novalens",
-        "ask_novalens",
-        "novalens_analyze_screen_region",
-        "novalens_analyze_recent_audio",
     }.issubset(names)
 
 

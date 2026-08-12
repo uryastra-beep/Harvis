@@ -935,17 +935,6 @@ def _create_system_tray(
         microphone.triggered.connect(toggle_microphone)
         menu.addAction(microphone)
 
-        open_novalens_action = QAction("Open NovaLens", menu)
-
-        def open_novalens() -> None:
-            try:
-                assistant.open_companion_novalens()
-            except Exception as exc:
-                window.statusBar().showMessage(f"Could not open NovaLens: {exc}", 5000)
-
-        open_novalens_action.triggered.connect(open_novalens)
-        menu.addAction(open_novalens_action)
-
         undo_action = QAction("Undo last safe action", menu)
 
         def undo_last_safe_action() -> None:

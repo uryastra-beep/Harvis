@@ -238,35 +238,6 @@ def feature_tool_declarations() -> list[dict[str, Any]]:
                 "required": ["name"],
             },
         },
-        {
-            "name": "open_novalens",
-            "description": (
-                "Open the installed NovaLens application, Harvis's companion visual interface."
-            ),
-            "parameters": {"type": "object", "properties": {}},
-        },
-        {
-            "name": "ask_novalens",
-            "description": (
-                "Send a text question to the locally installed NovaLens companion and return its popup response. "
-                "Use when the user explicitly asks Harvis to hand a question to NovaLens."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {"question": {"type": "string", "maxLength": 20000}},
-                "required": ["question"],
-            },
-        },
-        {
-            "name": "novalens_analyze_screen_region",
-            "description": "Ask NovaLens to open its interactive screen-region analyzer.",
-            "parameters": {"type": "object", "properties": {}},
-        },
-        {
-            "name": "novalens_analyze_recent_audio",
-            "description": "Ask NovaLens to analyze its configured rolling microphone buffer.",
-            "parameters": {"type": "object", "properties": {}},
-        },
     ]
 
 

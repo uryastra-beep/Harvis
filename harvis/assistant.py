@@ -55,7 +55,6 @@ from harvis.features.file_operations import (
 from harvis.features.image_analysis import analyze_image
 from harvis.features.memory import MemoryStore
 from harvis.features.named_links import open_named_link
-from harvis.features.novalens_bridge import NovaLensBridge
 from harvis.features.questionnaire import complete_visible_questionnaire
 from harvis.features.routines import RoutineStore
 from harvis.features.tool_declarations import feature_tool_declarations
@@ -161,9 +160,7 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             "must never submit, finish, send, or otherwise commit the questionnaire. Always remind the user to "
             "review the filled answers. Use save_routine only after an explicit request, and execute saved routines "
             "and data-only plugins through the guarded planner. undo_last_action works only for a recorded safe "
-            "inverse; never promise that every computer action is reversible. Use the NovaLens companion tools "
-            "only when the user explicitly asks to open NovaLens, hand it a question, select a screen region, or "
-            "analyze its recent audio buffer."
+            "inverse; never promise that every computer action is reversible."
         )
 
     @staticmethod
@@ -498,7 +495,6 @@ class HarvisAssistant:
         self._memory = MemoryStore()
         self._routines = RoutineStore()
         self._plugins = DeclarativePluginStore()
-        self._novalens = NovaLensBridge()
         self._activity = ActivityHistory()
         self._task_orchestrator = TaskOrchestrator(
             executor=self._execute_tool,
@@ -562,11 +558,6 @@ class HarvisAssistant:
             self._notify_status("Starting Gemini Live assistant")
             self._voice.start()
         self._reset_wake_session_timer()
-
-    def open_companion_novalens(self) -> dict[str, Any]:
-        """Open NovaLens through the same audited local tool path."""
-
-        return self._execute_tool("open_novalens", {})
 
     def undo_last_safe_action(self) -> dict[str, Any]:
         """Undo the latest recorded action only when Harvis has a safe inverse."""
@@ -1053,48 +1044,6 @@ class HarvisAssistant:
             if not isinstance(steps, list):
                 raise ValueError("The selected plugin is invalid.")
             return self._task_orchestrator.execute(steps)
-
-        if name == "open_novalens":
-            try:
-                open_application("NovaLens")
-                return {
-                    "status": "completed",
-                    "application": "NovaLens",
-                    "method": "known_launcher",
-                }
-            except SystemActionError:
-                return open_discovered_application("NovaLens")
-
-        if name in {
-            "ask_novalens",
-            "novalens_analyze_screen_region",
-            "novalens_analyze_recent_audio",
-        }:
-            bridge_action = {
-                "ask_novalens": "ask",
-                "novalens_analyze_screen_region": "screen",
-                "novalens_analyze_recent_audio": "audio",
-            }[name]
-            try:
-                open_application("NovaLens")
-                launch_result: dict[str, Any] = {
-                    "status": "completed",
-                    "application": "NovaLens",
-                    "method": "known_launcher",
-                }
-            except SystemActionError:
-                launch_result = open_discovered_application("NovaLens")
-            if str(launch_result.get("status", "")) != "completed":
-                return {
-                    **launch_result,
-                    "message": "A compatible NovaLens installation could not be opened.",
-                }
-            time.sleep(1.0)
-            return self._novalens.send(
-                bridge_action,
-                text=str(arguments.get("question", "")),
-                wait_for_response=bridge_action == "ask",
-            )
 
         if name == "execute_action_plan":
             steps = arguments.get("steps", [])

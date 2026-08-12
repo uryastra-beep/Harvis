@@ -38,8 +38,7 @@ The project currently targets Windows most strongly while keeping the architectu
 - Bounded, redacted activity history and limited safe Undo.
 - Local clipboard context only after an explicit user request.
 - Local Windows wake-word mode that can avoid a continuous Gemini microphone connection.
-- Persistent system-tray controls, including mode switching, microphone control, NovaLens, and Undo.
-- Local same-user NovaLens companion bridge for questions, screen-region analysis, and recent audio.
+- Persistent system-tray controls, including mode switching, microphone control, and Undo.
 - Startup update checks, a portable Windows executable build, and an Inno Setup installer workflow.
 
 ## Official color palette
@@ -216,12 +215,6 @@ Harvis can analyze an exact-name local BMP, GIF, JPEG, PNG, or WebP image up to 
 When the user explicitly says `Complete it with the correct answers` or makes an equivalent request, Harvis can inspect the currently visible questionnaire, infer answers, and fill only visible fields above its confidence threshold. It handles visible text fields and multiple-choice options, stops when a target cannot be located confidently, and never clicks Submit, Finish, Send, Next, or another committing control. The user must review and submit the result.
 
 If Gemini questionnaire analysis is unavailable on Windows, Harvis attempts a bounded fallback: it copies visible page text, opens `https://chatgpt.com/?temporary-chat=true`, requests a strict answer format, waits for the response, returns to the previous window, and fills the fields it can locate. If it cannot retrieve structured answers safely, it leaves the temporary chat open for manual review rather than guessing.
-
-## NovaLens companion integration
-
-When NovaLens is installed, Harvis can open it, send it a text question, start its screen-region selector, or request analysis of NovaLens's recent rolling audio buffer. Integration uses bounded, same-user JSON files under `%APPDATA%\NovaLens`; it does not expose a network port or copy either application's API key.
-
-Both applications must contain the bridge implementation. Updating only Harvis or only NovaLens leaves the companion commands unavailable without affecting their independent features.
 
 ## Multi-step task orchestration
 
@@ -516,7 +509,7 @@ Run the test suite with:
 python -m pytest
 ```
 
-The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, guarded long-workflow readiness, paired mobile remote control, mobile voice routing, authenticated remote audio retrieval, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, the AI watermark filter, memory, exact-name files, named links, routines, plugins, activity redaction, questionnaire safety, guarded file operations, and the NovaLens bridge protocol.
+The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, guarded long-workflow readiness, paired mobile remote control, mobile voice routing, authenticated remote audio retrieval, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, the AI watermark filter, memory, exact-name files, named links, routines, plugins, activity redaction, questionnaire safety, and guarded file operations.
 
 GitHub Actions runs the complete test suite, dependency verification, and Python compilation checks on both Windows
 and Linux for every push to `main` and every pull request.
