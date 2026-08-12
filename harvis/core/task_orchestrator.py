@@ -216,6 +216,11 @@ class TaskOrchestrator:
             "checkpoints": checkpoints,
         }
 
+    def validate(self, steps: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Validate a plan for later execution and return its normalized representation."""
+
+        return self._normalize_plan(steps)
+
     def _guard_transition(
         self,
         *,

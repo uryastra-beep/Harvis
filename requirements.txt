@@ -4,6 +4,7 @@ sounddevice>=0.5,<1
 Pillow>=11,<13
 mss>=10,<11
 opencv-python-headless>=4.10,<5
+send2trash>=1.8,<2
 pywinauto>=0.6.9,<1; platform_system == "Windows"
 pycaw>=20240210; platform_system == "Windows"
 comtypes>=1.4; platform_system == "Windows"

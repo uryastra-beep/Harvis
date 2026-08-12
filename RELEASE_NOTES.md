@@ -30,6 +30,37 @@ Harvis is a Python desktop personal assistant that combines Gemini Live conversa
 - Watermark intent filtering so searches, URLs, navigation, and other operational typing stay unmarked.
 - Improved Unicode typing and explicit physical Enter handling.
 - Cleaner Gemini Live startup, shutdown, latency, and reconnect behavior.
+- User-controlled local memory with explicit secret rejection.
+- Exact-name opening for folders, photos, videos, PDFs, documents, and other files.
+- Guarded copy, move, rename, Trash, and folder-organization operations.
+- Editable friendly web shortcuts through `links.txt`.
+- Local-image descriptions and visible-questionnaire assistance.
+- A temporary ChatGPT questionnaire fallback when Gemini analysis is unavailable on Windows.
+- Reusable routines, JSON-only plugins, redacted activity history, and limited safe Undo.
+- Optional local Windows wake-word activation and a configurable active-session timeout.
+- System-tray controls for mode, microphone, NovaLens, Undo, and exit.
+- Local NovaLens companion commands for text questions, screen selection, and recent audio.
+- GitHub release checks, a PyInstaller executable build, an Inno Setup installer, and a Windows packaging workflow.
+
+### Local knowledge and automation
+
+Harvis now stores explicit non-secret memories in a bounded local file managed from `Settings > Knowledge`. It rejects password, API-key, token, and secret-like entries. The same page provides direct access to friendly named links, saved routines, JSON-only plugins, and the redacted activity log.
+
+Routines and plugins execute only through the existing guarded action planner. Plugin files are declarative JSON; Harvis does not import or execute plugin Python code. Activity history omits typed content and secret-like arguments, while Undo is exposed only for a small set of actions that recorded a safe inverse.
+
+### Files, images, and questionnaires
+
+Harvis can find standard user-folder items by exact name and open them with the operating system default application. Explicit requests can copy, move, or rename without overwriting. Trash and folder organization require a real subsequent confirmation, and deletion remains recoverable through the operating system Trash.
+
+Gemini Vision can briefly describe an exact-name local image. For visible questionnaires, Harvis fills only confident visible answers and never submits the form. When Gemini analysis is unavailable on Windows, a bounded temporary-ChatGPT fallback can copy visible question text, obtain structured answers, return to the form, and fill what it can locate. The user remains responsible for review and submission.
+
+### NovaLens, wake word, tray, and packaging
+
+Harvis and NovaLens can exchange bounded local requests without a network listener. Harvis can open NovaLens, ask it a text question, invoke its screen-region selector, or request recent-audio analysis.
+
+Optional local wake-word mode uses Windows SAPI to recognize Harvis or Jarvis before opening the Gemini Live microphone session. System-tray controls keep common actions available when the Settings window is hidden.
+
+The repository now contains repeatable Windows executable and installer scripts. A packaging workflow uploads a tested installer artifact but intentionally leaves GitHub release publication manual.
 
 ### Mobile remote control
 
@@ -127,8 +158,8 @@ To use the mobile controller, enable it in Settings > Advanced, save settings, t
 - Mobile remote control is LAN-only and currently uses HTTP rather than TLS. Do not expose its port to the public Internet or use it on an untrusted network.
 - Windows is currently the most heavily tested platform.
 - Linux support is present for several system integrations, but some desktop-control features still depend on X11-compatible tools and are not fully Wayland-ready.
-- No packaged installer or signed executable is currently included.
-- No project license has been selected yet.
+- The executable and installer are not code-signed, so Windows may show an unknown-publisher warning.
+- Harvis is licensed under GNU GPLv3; see `LICENSE`.
 
 ### Before publishing
 

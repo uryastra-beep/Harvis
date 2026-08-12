@@ -1,6 +1,6 @@
 # Harvis
 
-Harvis is a cross-platform desktop personal assistant built in Python. It combines real-time Gemini Live conversation, local computer control, visual interaction, guarded multi-step task execution, configurable Speaking and Silent modes, optional audio-reactive visualizers, and paired mobile control over a trusted local network.
+Harvis is a cross-platform desktop personal assistant built in Python. It combines real-time Gemini Live conversation, local computer and file control, visual interaction, guarded multi-step task execution, configurable Speaking and Silent modes, optional audio-reactive visualizers, and paired mobile control over a trusted local network.
 
 The project currently targets Windows most strongly while keeping the architecture portable to Linux wherever the underlying system integrations allow it.
 
@@ -28,6 +28,19 @@ The project currently targets Windows most strongly while keeping the architectu
 - Smooth Sphere-to-spinner loading animation while Harvis processes requests and visual searches.
 - Optional AI-authorship watermark for content Harvis writes.
 - Persistent settings with a PySide6 liquid-glass interface.
+- User-controlled local memory that refuses passwords, tokens, API keys, and secrets.
+- Exact-name file and folder opening, plus guarded copy, move, rename, Trash, and folder-organization actions.
+- Friendly named links stored in an editable `links.txt` file.
+- Short Gemini Vision descriptions of exact-name local image files.
+- Visible-questionnaire assistance with confident field filling and no automatic submission.
+- Temporary ChatGPT browser fallback when Gemini questionnaire analysis is unavailable on Windows.
+- Reusable guarded routines and JSON-only declarative plugins.
+- Bounded, redacted activity history and limited safe Undo.
+- Local clipboard context only after an explicit user request.
+- Local Windows wake-word mode that can avoid a continuous Gemini microphone connection.
+- Persistent system-tray controls, including mode switching, microphone control, NovaLens, and Undo.
+- Local same-user NovaLens companion bridge for questions, screen-region analysis, and recent audio.
+- Startup update checks, a portable Windows executable build, and an Inno Setup installer workflow.
 
 ## Official color palette
 
@@ -40,6 +53,8 @@ The project currently targets Windows most strongly while keeping the architectu
 ### Speaking
 
 Speaking mode uses the microphone and Gemini Live native audio output. Harvis listens for requests addressed to `Harvis` or `Jarvis`, answers with voice, and can execute approved desktop tools.
+
+On Windows, `Settings > Advanced > Local wake word` can keep Gemini disconnected until Windows SAPI recognizes `Harvis` or `Jarvis` locally. After activation, Gemini Live handles the request and stays available for the configured 30-to-600-second idle window before Harvis returns to local listening. This optional mode is off by default because Windows speech-recognizer availability and accuracy vary by installed language pack and microphone.
 
 When the visualizer is enabled:
 
@@ -160,6 +175,53 @@ Harvis can currently use approved tools for actions including:
 - Shut down the Harvis application itself.
 
 Harvis self-shutdown only closes Harvis. It does not shut down, restart, sleep, lock, or sign out of the operating system.
+
+## Local files, links, and clipboard
+
+Harvis can find and open folders, photos, videos, PDFs, documents, and other files by exact name. Searches are limited to the user's standard Desktop, Downloads, Documents, Pictures, Videos, and Music folders, are bounded to avoid unrestrained disk scans, and never guess when several exact matches exist.
+
+Explicit requests can also copy, move, or rename an exact item without overwriting an existing destination. Deletion always requires a real subsequent user confirmation and sends the item to the operating system Trash instead of permanently deleting it. Folder organization is limited to top-level files, requires the same confirmation gate, and skips naming conflicts. Safe move and rename actions record a limited inverse for Undo.
+
+Friendly web shortcuts live in:
+
+```text
+%APPDATA%\Harvis\links.txt
+```
+
+The format is one exact name and HTTPS link per line:
+
+```text
+Oxford: https://englishhub.oup.com/
+Woot it: https://www.wootit.com/ghm/v4/home/
+```
+
+For example, `Open Oxford` resolves the exact friendly name and opens its configured URL. Harvis ignores malformed lines and accepts only HTTP or HTTPS links.
+
+Harvis can read up to 50,000 characters of text from the current clipboard only after the user explicitly asks about copied content. It does not keep a clipboard history.
+
+## Local memory, routines, plugins, and activity
+
+`Settings > Knowledge` manages Harvis's user-controlled local data. Memory is enabled by default, supports up to 250 named entries, and is written only when the user explicitly asks Harvis to remember something or uses the memory controls. Passwords, API keys, authentication tokens, and other secrets are rejected.
+
+Reusable routines store up to 24 already approved desktop steps and run through the same bounded task orchestrator as one-time plans. Harvis validates the complete routine before saving and again before execution.
+
+Plugins are deliberately data-only JSON plans from `%APPDATA%\Harvis\plugins`. Harvis never imports Python from that folder. Built-in starter definitions open Spotify, Discord, GitHub, Gmail, and Google Calendar; every plugin action is still validated by the guarded orchestrator.
+
+The local `activity.jsonl` file keeps at most 500 action records. Typed text, memory values, and secret-like arguments are omitted or redacted. Undo is intentionally narrow: it is available only when the latest completed action recorded a supported safe inverse, such as moving or renaming an item or opening/closing a browser tab.
+
+## Image and questionnaire assistance
+
+Harvis can analyze an exact-name local BMP, GIF, JPEG, PNG, or WebP image up to 20 MB and return a short Gemini Vision description or answer a specific question about it. Instructions visible inside the image are treated as untrusted content.
+
+When the user explicitly says `Complete it with the correct answers` or makes an equivalent request, Harvis can inspect the currently visible questionnaire, infer answers, and fill only visible fields above its confidence threshold. It handles visible text fields and multiple-choice options, stops when a target cannot be located confidently, and never clicks Submit, Finish, Send, Next, or another committing control. The user must review and submit the result.
+
+If Gemini questionnaire analysis is unavailable on Windows, Harvis attempts a bounded fallback: it copies visible page text, opens `https://chatgpt.com/?temporary-chat=true`, requests a strict answer format, waits for the response, returns to the previous window, and fills the fields it can locate. If it cannot retrieve structured answers safely, it leaves the temporary chat open for manual review rather than guessing.
+
+## NovaLens companion integration
+
+When NovaLens is installed, Harvis can open it, send it a text question, start its screen-region selector, or request analysis of NovaLens's recent rolling audio buffer. Integration uses bounded, same-user JSON files under `%APPDATA%\NovaLens`; it does not expose a network port or copy either application's API key.
+
+Both applications must contain the bridge implementation. Updating only Harvis or only NovaLens leaves the companion commands unavailable without affecting their independent features.
 
 ## Multi-step task orchestration
 
@@ -325,6 +387,10 @@ Harvis currently stores persistent settings for:
 - AI watermark enabled state.
 - Mobile remote control enabled state.
 - Mobile remote LAN port.
+- Local memory enabled state.
+- Local Windows wake-word enabled state and active-session timeout.
+- System-tray enabled state.
+- Automatic GitHub release checks.
 
 The mobile voice-output target is intentionally runtime state rather than a persistent desktop setting. The remote returns to `Computer only` when the server stops.
 
@@ -349,6 +415,24 @@ Gemini Live can still understand multiple languages. The configured language act
 - A modern phone browser with Web Audio support for phone-side voice playback.
 
 Python dependencies are listed in `requirements.txt`.
+
+### Windows executable and installer
+
+Build the tested portable executable from PowerShell:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build\build_exe.ps1
+```
+
+The executable is created at `dist\Harvis\Harvis.exe`. The build script stops only Harvis processes whose executable is inside that exact output directory, runs the test suite, and then performs the PyInstaller build.
+
+After installing Inno Setup 6, build the per-user Windows x64 installer with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build\build_installer.ps1 -Version 0.2.0
+```
+
+The installer is written to `dist\installer`. It includes optional desktop and startup shortcuts and does not require administrator privileges. The `Windows package` GitHub Actions workflow can also build and upload the installer as a workflow artifact from a semantic-version tag or a manual dispatch; it intentionally does not publish a release automatically.
 
 ### Windows setup
 
@@ -432,7 +516,7 @@ Run the test suite with:
 python -m pytest
 ```
 
-The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, guarded long-workflow readiness, paired mobile remote control, mobile voice routing, authenticated remote audio retrieval, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, and the AI watermark filter.
+The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, guarded long-workflow readiness, paired mobile remote control, mobile voice routing, authenticated remote audio retrieval, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, the AI watermark filter, memory, exact-name files, named links, routines, plugins, activity redaction, questionnaire safety, guarded file operations, and the NovaLens bridge protocol.
 
 GitHub Actions runs the complete test suite, dependency verification, and Python compilation checks on both Windows
 and Linux for every push to `main` and every pull request.
@@ -448,7 +532,11 @@ and Linux for every push to `main` and every pull request.
 - Mobile browsers can suspend Web Audio when the page is backgrounded or require a user gesture before playback.
 - Some Linux desktop-control features depend on X11-compatible tools such as `xdotool`; Wayland support is not complete.
 - Windows is currently the most heavily tested platform.
-- A packaged installer or signed executable is not currently part of the repository release process.
+- The local wake-word listener currently requires Windows SAPI and an installed compatible speech recognizer.
+- Exact-name file search is deliberately limited to standard user folders and a bounded number of entries.
+- Questionnaire assistance is limited to currently visible fields, can make incorrect inferences, and always requires user review and manual submission.
+- The ChatGPT questionnaire fallback currently requires Windows UI Automation and an already usable browser session.
+- The installer and executable are not code-signed, so Windows SmartScreen can still show an unknown-publisher warning.
 
 ## Release preparation
 
@@ -458,4 +546,6 @@ See `RELEASE_CHECKLIST.md` for final manual checks and `RELEASE_NOTES.md` for th
 
 ## License
 
-A project license has not been selected yet. Add a license before public distribution if you want others to have explicit permissions to use, modify, or redistribute the project.
+Copyright (C) 2026 Ury (uryastra-beep).
+
+Harvis is licensed under the GNU General Public License v3.0. See `LICENSE` for the complete terms. Modified and redistributed versions must preserve the GPL freedoms and provide the corresponding source code as required by the license.

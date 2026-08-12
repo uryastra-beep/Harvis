@@ -45,3 +45,38 @@ def test_text_command_is_rejected_in_speaking_mode() -> None:
 
     with pytest.raises(SystemActionError, match="only in Silent mode"):
         assistant.send_text_command("open Chrome")
+
+
+def test_disabling_idle_local_wake_starts_gemini(monkeypatch) -> None:
+    assistant = HarvisAssistant(
+        HarvisSettings(
+            assistant_mode="Speaking",
+            local_wake_word_enabled=True,
+        )
+    )
+    starts: list[bool] = []
+    monkeypatch.setattr(assistant._voice, "start", lambda: starts.append(True))
+
+    assistant.apply_settings(
+        HarvisSettings(
+            assistant_mode="Speaking",
+            local_wake_word_enabled=False,
+        )
+    )
+
+    assert starts == [True]
+
+
+def test_local_wake_runtime_error_falls_back_to_gemini(monkeypatch) -> None:
+    assistant = HarvisAssistant(
+        HarvisSettings(
+            assistant_mode="Speaking",
+            local_wake_word_enabled=True,
+        )
+    )
+    starts: list[bool] = []
+    monkeypatch.setattr(assistant._voice, "start", lambda: starts.append(True))
+
+    assistant._handle_local_wake_error(RuntimeError("recognizer stopped"))
+
+    assert starts == [True]

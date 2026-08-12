@@ -19,6 +19,11 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         visualizer_sensitivity=82,
         ai_provider="Not configured",
         ai_watermark_enabled=False,
+        local_memory_enabled=False,
+        local_wake_word_enabled=True,
+        wake_session_timeout_seconds=240,
+        automatic_update_checks=False,
+        system_tray_enabled=False,
         remote_control_enabled=True,
         remote_control_port=9123,
     )
@@ -37,6 +42,11 @@ def test_settings_are_normalized(tmp_path: Path) -> None:
         visualizer_type="Unknown",
         visualizer_sensitivity=-5,
         ai_watermark_enabled="invalid",  # type: ignore[arg-type]
+        local_memory_enabled="invalid",  # type: ignore[arg-type]
+        local_wake_word_enabled="invalid",  # type: ignore[arg-type]
+        wake_session_timeout_seconds=9999,
+        automatic_update_checks="invalid",  # type: ignore[arg-type]
+        system_tray_enabled="invalid",  # type: ignore[arg-type]
         remote_control_enabled="invalid",  # type: ignore[arg-type]
         remote_control_port=90000,
     )
@@ -49,6 +59,11 @@ def test_settings_are_normalized(tmp_path: Path) -> None:
     assert loaded.visualizer_type == "Sphere"
     assert loaded.visualizer_sensitivity == 0
     assert loaded.ai_watermark_enabled is True
+    assert loaded.local_memory_enabled is True
+    assert loaded.local_wake_word_enabled is False
+    assert loaded.wake_session_timeout_seconds == 600
+    assert loaded.automatic_update_checks is True
+    assert loaded.system_tray_enabled is True
     assert loaded.remote_control_enabled is False
     assert loaded.remote_control_port == 65535
 

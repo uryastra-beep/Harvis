@@ -40,18 +40,22 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libegl1 libgl1
+          sudo apt-get install --yes libegl1 libgl1 libportaudio2
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
+          python -m pip install "bandit>=1.8,<2"
 
       - name: Verify dependencies
         run: python -m pip check
 
       - name: Compile Python sources
         run: python -m compileall -q harvis tests
+
+      - name: Scan for medium and high severity Python security issues
+        run: python -m bandit -q -ll -r harvis
 
       - name: Run test suite
         run: python -m pytest -q

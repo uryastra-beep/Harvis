@@ -2,15 +2,23 @@ from __future__ import annotations
 
 import argparse
 import sys
+import threading
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
+from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QComboBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QMenu,
+    QPushButton,
     QSpinBox,
+    QSystemTrayIcon,
     QVBoxLayout,
 )
 
@@ -28,13 +36,19 @@ from harvis.credentials import (
     get_gemini_api_key,
     save_gemini_api_key,
 )
+from harvis.features.file_access import open_exact_path
+from harvis.features.memory import MemoryStore
+from harvis.features.named_links import named_links_path
+from harvis.features.storage import harvis_data_dir
 from harvis.remote_assistant import RemoteCapableHarvisAssistant
 from harvis.remote_control import RemoteControlServer
 from harvis.single_instance import SingleInstanceCoordinator
+from harvis.startup import apply_startup_setting
 from harvis.ui.orb_popup import OrbPopupWindow
 from harvis.ui.settings_window import LiquidActionButton, SettingsWindow
 from harvis.ui.silent_popup import SilentCommandPopup
 from harvis.ui.visualizer_window import VisualizerWindow
+from harvis.update_checker import UpdateInfo, check_for_updates
 
 
 class AssistantSignals(QObject):
@@ -48,6 +62,11 @@ class AssistantSignals(QObject):
     shutdown_requested = Signal()
 
 
+class UpdateSignals(QObject):
+    result = Signal(object)
+    error = Signal(str)
+
+
 class HarvisSettingsWindow(SettingsWindow):
     """Settings window with interaction mode and assistant integration."""
 
@@ -58,6 +77,13 @@ class HarvisSettingsWindow(SettingsWindow):
         ) = None
         self._assistant: RemoteCapableHarvisAssistant | None = None
         self._remote_server: RemoteControlServer | None = None
+        self._tray_available = False
+        self._system_tray: QSystemTrayIcon | None = None
+        self._force_exit = False
+        self._memory_store = MemoryStore()
+        self._update_signals = UpdateSignals(self)
+        self._update_signals.result.connect(self._show_update_result)
+        self._update_signals.error.connect(self._show_update_error)
         super().__init__(settings_store)
         set_ai_watermark_enabled(self._settings.ai_watermark_enabled)
 
@@ -67,6 +93,14 @@ class HarvisSettingsWindow(SettingsWindow):
     def set_remote_server(self, remote_server: RemoteControlServer) -> None:
         self._remote_server = remote_server
         self._refresh_remote_control_info()
+
+    def set_tray_available(self, available: bool) -> None:
+        self._tray_available = bool(available)
+
+    def set_system_tray(self, tray: QSystemTrayIcon | None) -> None:
+        """Keep the Qt tray wrapper alive for the complete application lifetime."""
+
+        self._system_tray = tray
 
     def _build_general_page(self):
         page = super()._build_general_page()
@@ -264,8 +298,123 @@ class HarvisSettingsWindow(SettingsWindow):
         remote_note.setWordWrap(True)
         remote_form.addRow(remote_note)
 
+        behavior_group = self._glass_group("Runtime behavior")
+        behavior_form = QFormLayout(behavior_group)
+        behavior_form.setHorizontalSpacing(18)
+        behavior_form.setVerticalSpacing(12)
+
+        self.local_wake_word = QCheckBox(
+            "Use local Windows wake-word detection before connecting Gemini"
+        )
+        behavior_form.addRow(self.local_wake_word)
+
+        self.wake_session_timeout = QSpinBox()
+        self.wake_session_timeout.setRange(30, 600)
+        self.wake_session_timeout.setSuffix(" seconds")
+        behavior_form.addRow("Wake session idle timeout", self.wake_session_timeout)
+
+        self.system_tray = QCheckBox("Keep Harvis available in the system tray")
+        behavior_form.addRow(self.system_tray)
+
+        self.automatic_update_checks = QCheckBox(
+            "Check GitHub for new Harvis releases at startup"
+        )
+        behavior_form.addRow(self.automatic_update_checks)
+
+        update_row = QHBoxLayout()
+        self.check_updates_button = QPushButton("Check for updates")
+        self.check_updates_button.clicked.connect(self._check_for_updates)
+        self.update_status = QLabel("Updates have not been checked in this session.")
+        self.update_status.setObjectName("mutedLabel")
+        self.update_status.setWordWrap(True)
+        update_row.addWidget(self.check_updates_button)
+        update_row.addWidget(self.update_status, 1)
+        behavior_form.addRow(update_row)
+
+        wake_note = QLabel(
+            "Local wake-word mode uses Windows SAPI to listen for Harvis or Jarvis without sending continuous "
+            "microphone audio to Gemini. Gemini connects after the wake name is detected and disconnects again "
+            "after the configured idle timeout."
+        )
+        wake_note.setObjectName("mutedLabel")
+        wake_note.setWordWrap(True)
+        behavior_form.addRow(wake_note)
+
         layout.addWidget(remote_group)
+        layout.addWidget(behavior_group)
         layout.addStretch(1)
+        return page
+
+    def _build_knowledge_page(self):
+        page, layout = self._page_shell(
+            "Knowledge",
+            "Manage Harvis's user-controlled local memory, named links, routines, and data-only plugins.",
+        )
+
+        memory_group = self._glass_group("Local memory")
+        memory_layout = QVBoxLayout(memory_group)
+        self.local_memory = QCheckBox("Allow Harvis to save explicit non-secret memories")
+        memory_layout.addWidget(self.local_memory)
+
+        memory_form = QFormLayout()
+        self.memory_key = QLineEdit()
+        self.memory_key.setMaxLength(120)
+        self.memory_key.setPlaceholderText("Memory name")
+        self.memory_value = QLineEdit()
+        self.memory_value.setMaxLength(2000)
+        self.memory_value.setPlaceholderText("Non-secret value")
+        memory_form.addRow("Name", self.memory_key)
+        memory_form.addRow("Value", self.memory_value)
+        memory_layout.addLayout(memory_form)
+
+        self.memory_list = QListWidget()
+        self.memory_list.setMinimumHeight(150)
+        self.memory_list.currentItemChanged.connect(self._select_memory)
+        memory_layout.addWidget(self.memory_list)
+
+        memory_buttons = QHBoxLayout()
+        refresh_button = QPushButton("Refresh")
+        refresh_button.clicked.connect(self._refresh_memory_list)
+        save_memory_button = QPushButton("Add / update memory")
+        save_memory_button.clicked.connect(self._save_memory_from_controls)
+        delete_button = QPushButton("Delete selected memory")
+        delete_button.clicked.connect(self._delete_selected_memory)
+        memory_buttons.addWidget(refresh_button)
+        memory_buttons.addWidget(save_memory_button)
+        memory_buttons.addWidget(delete_button)
+        memory_buttons.addStretch(1)
+        memory_layout.addLayout(memory_buttons)
+
+        files_group = self._glass_group("Editable local data")
+        files_layout = QVBoxLayout(files_group)
+        files_note = QLabel(
+            "links.txt uses one entry per line: Name: https://example.com/. Routine and plugin files are validated "
+            "before execution, and plugins are JSON data only—Harvis never loads plugin Python code."
+        )
+        files_note.setObjectName("mutedLabel")
+        files_note.setWordWrap(True)
+        files_layout.addWidget(files_note)
+
+        file_buttons = QHBoxLayout()
+        for label, callback in (
+            ("Open links.txt", lambda: self._open_local_data(named_links_path())),
+            ("Open routines", lambda: self._open_local_data(harvis_data_dir() / "routines.json")),
+            ("Open plugins folder", lambda: self._open_local_data(harvis_data_dir() / "plugins")),
+            ("Open activity", lambda: self._open_local_data(harvis_data_dir() / "activity.jsonl")),
+        ):
+            button = QPushButton(label)
+            button.clicked.connect(lambda checked=False, cb=callback: cb())
+            file_buttons.addWidget(button)
+        files_layout.addLayout(file_buttons)
+
+        undo_button = QPushButton("Undo last safe action")
+        undo_button.clicked.connect(self._undo_last_safe_action)
+        files_layout.addWidget(undo_button, 0, Qt.AlignmentFlag.AlignLeft)
+
+        layout.addWidget(memory_group)
+        layout.addWidget(files_group)
+        layout.addStretch(1)
+        QTimer.singleShot(0, self._refresh_memory_list)
         return page
 
     def _load_settings_into_controls(self) -> None:
@@ -294,6 +443,25 @@ class HarvisSettingsWindow(SettingsWindow):
 
         if hasattr(self, "remote_control_port"):
             self.remote_control_port.setValue(self._settings.remote_control_port)
+
+        if hasattr(self, "local_memory"):
+            self.local_memory.setChecked(self._settings.local_memory_enabled)
+
+        if hasattr(self, "local_wake_word"):
+            self.local_wake_word.setChecked(self._settings.local_wake_word_enabled)
+
+        if hasattr(self, "wake_session_timeout"):
+            self.wake_session_timeout.setValue(
+                self._settings.wake_session_timeout_seconds
+            )
+
+        if hasattr(self, "automatic_update_checks"):
+            self.automatic_update_checks.setChecked(
+                self._settings.automatic_update_checks
+            )
+
+        if hasattr(self, "system_tray"):
+            self.system_tray.setChecked(self._settings.system_tray_enabled)
 
         self._refresh_gemini_api_key_status()
         self._refresh_remote_control_info()
@@ -509,6 +677,11 @@ class HarvisSettingsWindow(SettingsWindow):
         selected_ai_watermark = self.ai_watermark.currentText() == "On"
         selected_remote_control = self.remote_control_enabled.currentText() == "On"
         selected_remote_port = self.remote_control_port.value()
+        selected_local_memory = self.local_memory.isChecked()
+        selected_local_wake = self.local_wake_word.isChecked()
+        selected_wake_timeout = self.wake_session_timeout.value()
+        selected_update_checks = self.automatic_update_checks.isChecked()
+        selected_system_tray = self.system_tray.isChecked()
         pending_api_key = self.gemini_api_key.text().strip()
         api_key_changed = False
 
@@ -532,6 +705,11 @@ class HarvisSettingsWindow(SettingsWindow):
         self._settings.ai_watermark_enabled = selected_ai_watermark
         self._settings.remote_control_enabled = selected_remote_control
         self._settings.remote_control_port = selected_remote_port
+        self._settings.local_memory_enabled = selected_local_memory
+        self._settings.local_wake_word_enabled = selected_local_wake
+        self._settings.wake_session_timeout_seconds = selected_wake_timeout
+        self._settings.automatic_update_checks = selected_update_checks
+        self._settings.system_tray_enabled = selected_system_tray
         if isinstance(selected_language, str) and selected_language:
             self._settings.speech_language = selected_language
         self._settings_store.save(self._settings)
@@ -545,6 +723,13 @@ class HarvisSettingsWindow(SettingsWindow):
         )
         self.remote_control_port.setValue(self._settings.remote_control_port)
         set_ai_watermark_enabled(self._settings.ai_watermark_enabled)
+        try:
+            apply_startup_setting(self._settings.start_with_windows)
+        except Exception as exc:
+            self.statusBar().showMessage(
+                f"Settings saved, but startup registration failed: {exc}",
+                6000,
+            )
 
         if self._assistant is not None:
             if api_key_changed:
@@ -563,6 +748,11 @@ class HarvisSettingsWindow(SettingsWindow):
             )
 
     def closeEvent(self, event) -> None:
+        if self._tray_available and self._settings.system_tray_enabled and not self._force_exit:
+            event.ignore()
+            self.hide()
+            self.statusBar().showMessage("Harvis is still running in the system tray", 3500)
+            return
         if self._visualizer_preview is not None:
             self._visualizer_preview.close()
         if self._live_visualizer is not None:
@@ -572,6 +762,218 @@ class HarvisSettingsWindow(SettingsWindow):
         if self._assistant is not None:
             self._assistant.stop()
         super().closeEvent(event)
+
+    def request_full_exit(self) -> None:
+        self._force_exit = True
+        self.close()
+
+    def _refresh_memory_list(self) -> None:
+        if not hasattr(self, "memory_list"):
+            return
+        self.memory_list.clear()
+        result = self._memory_store.recall(limit=25)
+        for memory in result.get("memories", []):
+            key = str(memory.get("key", ""))
+            value = str(memory.get("value", ""))
+            self.memory_list.addItem(f"{key}: {value}")
+            item = self.memory_list.item(self.memory_list.count() - 1)
+            item.setData(Qt.ItemDataRole.UserRole, key)
+
+    def _delete_selected_memory(self) -> None:
+        item = self.memory_list.currentItem()
+        if item is None:
+            self.statusBar().showMessage("Select a memory first", 2500)
+            return
+        key = str(item.data(Qt.ItemDataRole.UserRole) or "")
+        result = self._memory_store.forget(key)
+        self.statusBar().showMessage(f"Memory {result['status']}: {key}", 3000)
+        self._refresh_memory_list()
+
+    def _select_memory(self, current, previous=None) -> None:
+        if current is None:
+            return
+        key = str(current.data(Qt.ItemDataRole.UserRole) or "")
+        result = self._memory_store.recall(key, limit=1)
+        memories = result.get("memories", [])
+        if not memories:
+            return
+        self.memory_key.setText(str(memories[0].get("key", "")))
+        self.memory_value.setText(str(memories[0].get("value", "")))
+
+    def _save_memory_from_controls(self) -> None:
+        try:
+            result = self._memory_store.remember(
+                self.memory_key.text(),
+                self.memory_value.text(),
+            )
+        except Exception as exc:
+            self.statusBar().showMessage(f"Could not save memory: {exc}", 5000)
+            return
+        self.statusBar().showMessage(f"Memory {result['status']}", 2500)
+        self.memory_key.clear()
+        self.memory_value.clear()
+        self._refresh_memory_list()
+
+    def _open_local_data(self, path) -> None:
+        target = path
+        if target.suffix and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.touch(exist_ok=True)
+        elif not target.suffix:
+            target.mkdir(parents=True, exist_ok=True)
+        result = open_exact_path(str(target.resolve()))
+        if result.get("status") != "completed":
+            self.statusBar().showMessage(f"Could not open {target}", 4000)
+
+    def _undo_last_safe_action(self) -> None:
+        if self._assistant is None:
+            self.statusBar().showMessage("Harvis assistant is not running", 3000)
+            return
+        try:
+            result = self._assistant.undo_last_safe_action()
+        except Exception as exc:
+            self.statusBar().showMessage(f"Undo failed: {exc}", 5000)
+            return
+        if result.get("status") == "completed":
+            self.statusBar().showMessage("Last safe action undone", 4000)
+        else:
+            self.statusBar().showMessage(
+                str(result.get("message", "No safe action is available to undo.")),
+                4000,
+            )
+
+    def _check_for_updates(self) -> None:
+        self.check_updates_button.setEnabled(False)
+        self.update_status.setText("Checking GitHub releases…")
+
+        def worker() -> None:
+            try:
+                self._update_signals.result.emit(check_for_updates())
+            except Exception as exc:
+                self._update_signals.error.emit(str(exc))
+
+        threading.Thread(target=worker, name="HarvisUpdateCheck", daemon=True).start()
+
+    def _show_update_result(self, info: UpdateInfo) -> None:
+        self.check_updates_button.setEnabled(True)
+        if info.available:
+            self.update_status.setOpenExternalLinks(True)
+            self.update_status.setText(
+                f'Harvis {info.latest_version} is available. '
+                f'<a href="{info.release_url}">Open Releases</a>.'
+            )
+            self.statusBar().showMessage(
+                f"Harvis {info.latest_version} is available",
+                6000,
+            )
+        else:
+            self.update_status.setText(
+                f"Harvis {info.current_version} is up to date."
+            )
+
+    def _show_update_error(self, message: str) -> None:
+        self.check_updates_button.setEnabled(True)
+        self.update_status.setText(message)
+
+
+def _tray_icon() -> QIcon:
+    pixmap = QPixmap(64, 64)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor("#00072B"))
+    painter.drawEllipse(2, 2, 60, 60)
+    painter.setBrush(QColor("#85B1FF"))
+    painter.drawEllipse(12, 12, 40, 40)
+    painter.setBrush(QColor("#53EEFC"))
+    painter.drawEllipse(24, 24, 16, 16)
+    painter.end()
+    return QIcon(pixmap)
+
+
+def _create_system_tray(
+    app: QApplication,
+    window: HarvisSettingsWindow,
+    assistant: RemoteCapableHarvisAssistant | None,
+) -> QSystemTrayIcon | None:
+    settings = window._settings
+    if not settings.system_tray_enabled or not QSystemTrayIcon.isSystemTrayAvailable():
+        window.set_tray_available(False)
+        return None
+
+    tray = QSystemTrayIcon(_tray_icon(), app)
+    tray.setToolTip("Harvis personal assistant")
+    menu = QMenu()
+
+    open_settings = QAction("Open Settings", menu)
+    open_settings.triggered.connect(lambda: _activate_window(window))
+    menu.addAction(open_settings)
+
+    if assistant is not None:
+        speaking = QAction("Speaking mode", menu)
+        silent = QAction("Silent mode", menu)
+
+        def set_mode(mode: str) -> None:
+            window.assistant_mode.setCurrentText(mode)
+            window._save_settings()
+            window.sync_live_visualizer()
+
+        speaking.triggered.connect(lambda: set_mode("Speaking"))
+        silent.triggered.connect(lambda: set_mode("Silent"))
+        menu.addAction(speaking)
+        menu.addAction(silent)
+
+        microphone = QAction("Mute / unmute microphone", menu)
+
+        def toggle_microphone() -> None:
+            try:
+                assistant.toggle_microphone_muted()
+            except Exception as exc:
+                window.statusBar().showMessage(str(exc), 4000)
+
+        microphone.triggered.connect(toggle_microphone)
+        menu.addAction(microphone)
+
+        open_novalens_action = QAction("Open NovaLens", menu)
+
+        def open_novalens() -> None:
+            try:
+                assistant.open_companion_novalens()
+            except Exception as exc:
+                window.statusBar().showMessage(f"Could not open NovaLens: {exc}", 5000)
+
+        open_novalens_action.triggered.connect(open_novalens)
+        menu.addAction(open_novalens_action)
+
+        undo_action = QAction("Undo last safe action", menu)
+
+        def undo_last_safe_action() -> None:
+            window._undo_last_safe_action()
+
+        undo_action.triggered.connect(undo_last_safe_action)
+        menu.addAction(undo_action)
+
+    menu.addSeparator()
+    quit_action = QAction("Quit Harvis", menu)
+
+    def quit_harvis() -> None:
+        window.request_full_exit()
+        app.quit()
+
+    quit_action.triggered.connect(quit_harvis)
+    menu.addAction(quit_action)
+
+    tray.setContextMenu(menu)
+    tray.activated.connect(
+        lambda reason: _activate_window(window)
+        if reason == QSystemTrayIcon.ActivationReason.Trigger
+        else None
+    )
+    tray.show()
+    window.set_tray_available(True)
+    app.setQuitOnLastWindowClosed(False)
+    return tray
 
 
 def _parse_runtime_options() -> tuple[argparse.Namespace, list[str]]:
@@ -717,6 +1119,9 @@ def main() -> int:
             lambda: _activate_window(window)
         )
 
+    if isinstance(window, HarvisSettingsWindow):
+        window.set_system_tray(_create_system_tray(app, window, assistant))
+
     window.show()
 
     if assistant is not None:
@@ -724,5 +1129,11 @@ def main() -> int:
         print("[Harvis] Gemini Live runtime scheduled to start.", flush=True)
         QTimer.singleShot(300, assistant.start)
         QTimer.singleShot(450, window.sync_remote_control)
+
+    if (
+        isinstance(window, HarvisSettingsWindow)
+        and window._settings.automatic_update_checks
+    ):
+        QTimer.singleShot(1400, window._check_for_updates)
 
     return app.exec()

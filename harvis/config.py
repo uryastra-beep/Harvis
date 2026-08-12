@@ -31,6 +31,11 @@ class HarvisSettings:
     visualizer_sensitivity: int = 60
     ai_provider: str = "Gemini Live"
     ai_watermark_enabled: bool = True
+    local_memory_enabled: bool = True
+    local_wake_word_enabled: bool = False
+    wake_session_timeout_seconds: int = 90
+    automatic_update_checks: bool = True
+    system_tray_enabled: bool = True
     remote_control_enabled: bool = False
     remote_control_port: int = 8765
 
@@ -51,6 +56,24 @@ class HarvisSettings:
 
         if not isinstance(self.ai_watermark_enabled, bool):
             self.ai_watermark_enabled = True
+
+        if not isinstance(self.local_memory_enabled, bool):
+            self.local_memory_enabled = True
+
+        if not isinstance(self.local_wake_word_enabled, bool):
+            self.local_wake_word_enabled = False
+
+        try:
+            wake_timeout = int(self.wake_session_timeout_seconds)
+        except (TypeError, ValueError):
+            wake_timeout = 90
+        self.wake_session_timeout_seconds = max(30, min(600, wake_timeout))
+
+        if not isinstance(self.automatic_update_checks, bool):
+            self.automatic_update_checks = True
+
+        if not isinstance(self.system_tray_enabled, bool):
+            self.system_tray_enabled = True
 
         if not isinstance(self.remote_control_enabled, bool):
             self.remote_control_enabled = False

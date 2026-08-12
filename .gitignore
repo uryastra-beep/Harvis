@@ -8,7 +8,9 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
-build/
+build/*
+!build/build_exe.ps1
+!build/build_installer.ps1
 dist/
 *.egg-info/
 .vscode/

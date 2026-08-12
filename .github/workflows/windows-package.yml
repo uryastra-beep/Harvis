@@ -1,0 +1,54 @@
+name: Windows package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Installer version (for example 0.2.0)
+        required: true
+        default: 0.2.0
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Resolve package version
+        id: package
+        shell: pwsh
+        run: |
+          $Version = "${{ inputs.version }}"
+          if (-not $Version) {
+              $Version = "${{ github.ref_name }}".TrimStart("v")
+          }
+          if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+              throw "Version must use MAJOR.MINOR.PATCH."
+          }
+          "version=$Version" >> $env:GITHUB_OUTPUT
+
+      - name: Build and test installer
+        shell: pwsh
+        run: powershell -ExecutionPolicy Bypass -File .\build\build_installer.ps1 -Version "${{ steps.package.outputs.version }}"
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Harvis-Setup-${{ steps.package.outputs.version }}-Windows-x64
+          path: dist/installer/Harvis-Setup-${{ steps.package.outputs.version }}-Windows-x64.exe
+          if-no-files-found: error

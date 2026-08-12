@@ -169,16 +169,43 @@ Then set `AI watermark` to `Off`:
 - [ ] Confirm the remote pairing code and browser token are not written to `settings.json`.
 - [ ] Confirm all expected settings persist after restarting Harvis.
 
-## 12. Repository review
+## 12. Local knowledge, files, questionnaires, and NovaLens
+
+- [ ] Add, update, recall, and delete a non-secret memory from `Settings > Knowledge`.
+- [ ] Confirm a password, token, or API-key-like memory is rejected.
+- [ ] Add a temporary named link to `links.txt`, open it by exact friendly name, then remove it.
+- [ ] Open representative folder, image, video, PDF, and text-file names by exact name.
+- [ ] Confirm duplicate exact names return an ambiguity instead of opening a guessed item.
+- [ ] Copy, move, and rename temporary test items without overwriting existing destinations.
+- [ ] Confirm move and rename can be reverted with `Undo last safe action`.
+- [ ] Confirm Trash and folder organization require a real subsequent confirmation.
+- [ ] Confirm deletion sends a temporary test item to the operating system Trash.
+- [ ] Save and run a harmless routine, then delete it.
+- [ ] Run each bundled JSON-only plugin and confirm non-JSON/Python files in the plugin folder are ignored.
+- [ ] Review `activity.jsonl` and confirm typed content, memory values, API keys, tokens, and passwords are absent.
+- [ ] Analyze a local image and confirm the description matches it without following instructions shown inside it.
+- [ ] Test a harmless visible questionnaire and confirm only confident visible fields are filled.
+- [ ] Confirm questionnaire assistance never clicks Submit, Finish, Send, Next, or another committing control.
+- [ ] Temporarily make Gemini unavailable and test the Windows temporary-ChatGPT questionnaire fallback.
+- [ ] Enable local wake word, say Harvis or Jarvis, and confirm Gemini connects only after local recognition.
+- [ ] Let the configured wake session expire and confirm Harvis returns to local wake-word listening.
+- [ ] Close Settings and confirm Harvis remains available from the system tray when enabled.
+- [ ] Test tray mode switching, microphone control, NovaLens opening, Undo, and full exit.
+- [ ] With compatible NovaLens code installed, test text questions, screen-region selection, and recent-audio analysis through the local bridge.
+- [ ] Run `build\build_exe.ps1` and smoke-test `dist\Harvis\Harvis.exe`.
+- [ ] Run `build\build_installer.ps1`, install per-user, test launch/uninstall, and verify optional shortcuts.
+- [ ] Run the `Windows package` workflow manually and download its installer artifact.
+
+## 13. Repository review
 
 - [ ] Review `README.md` for accuracy.
 - [ ] Review `RELEASE_NOTES.md` and replace `vX.Y.Z` with the chosen release version.
-- [ ] Decide whether to add a project license before public distribution.
+- [ ] Confirm `LICENSE` still contains the complete GNU GPLv3 text.
 - [ ] Confirm no API keys, secrets, logs, virtual environments, build folders, or personal temporary files are tracked.
 - [ ] Confirm all committed repository text is in English.
 - [ ] Confirm the Windows and Linux GitHub Actions jobs pass on the release commit.
 
-## 13. GitHub release
+## 14. GitHub release
 
 - [ ] Choose the final semantic version and tag.
 - [ ] Use the updated `RELEASE_NOTES.md` as the basis for the GitHub release description.
@@ -187,4 +214,4 @@ Then set `AI watermark` to `Off`:
 
 ## Current packaging note
 
-The repository currently ships as Python source with helper launch scripts. It does not yet include a signed executable or installer, so the release should not claim that an installer is included unless one is added and tested first.
+The repository includes repeatable PyInstaller and Inno Setup builds plus a Windows packaging workflow. The artifacts are not code-signed, so the release must disclose the possible Windows SmartScreen unknown-publisher warning.

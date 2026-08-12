@@ -687,6 +687,7 @@ class SettingsWindow(QMainWindow):
         "AI",
         "Visualizer",
         "Actions",
+        "Knowledge",
         "Advanced",
     )
 
@@ -742,6 +743,7 @@ class SettingsWindow(QMainWindow):
             "AI": self._build_ai_page,
             "Visualizer": self._build_visualizer_page,
             "Actions": self._build_actions_page,
+            "Knowledge": self._build_knowledge_page,
             "Advanced": self._build_advanced_page,
         }
 
@@ -957,6 +959,14 @@ class SettingsWindow(QMainWindow):
         page, layout = self._page_shell(
             "Advanced",
             "Developer and diagnostics options will be added as the project grows.",
+        )
+        layout.addStretch(1)
+        return page
+
+    def _build_knowledge_page(self) -> QWidget:
+        page, layout = self._page_shell(
+            "Knowledge",
+            "Manage local memory, named links, routines, and plugins.",
         )
         layout.addStretch(1)
         return page

@@ -106,6 +106,7 @@ class RemoteCapableHarvisAssistant(HarvisAssistant):
         if not command:
             raise ValueError("Remote command cannot be empty.")
 
+        self.ensure_active_session()
         self._record_visual_confirmation_response(command, complete_input=True)
         self._set_watermark_context(command)
         if not self._voice.send_text(command):

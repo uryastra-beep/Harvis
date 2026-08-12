@@ -31,13 +31,36 @@ from harvis.actions.system import SystemActionError
 from harvis.actions.visual_control import move_pointer, vision_click
 from harvis.ai_watermark import should_watermark_ai_authored_text
 from harvis.config import HarvisSettings
+from harvis.core.command_parser import extract_command
 from harvis.core.intents import Intent, IntentType
 from harvis.core.router import IntentRouter
 from harvis.core.task_orchestrator import (
     TaskOrchestrator,
     task_plan_tool_declaration,
 )
+from harvis.features.activity import ActivityHistory
+from harvis.features.clipboard import read_clipboard_text
+from harvis.features.declarative_plugins import DeclarativePluginStore
+from harvis.features.file_access import open_exact_path
+from harvis.features.file_operations import (
+    copy_item,
+    move_item,
+    move_path_absolute,
+    organize_folder_by_type,
+    rename_item,
+    rename_path_absolute,
+    resolve_one_exact,
+    send_item_to_trash,
+)
+from harvis.features.image_analysis import analyze_image
+from harvis.features.memory import MemoryStore
+from harvis.features.named_links import open_named_link
+from harvis.features.novalens_bridge import NovaLensBridge
+from harvis.features.questionnaire import complete_visible_questionnaire
+from harvis.features.routines import RoutineStore
+from harvis.features.tool_declarations import feature_tool_declarations
 from harvis.voice.gemini_live import GeminiLiveVoice
+from harvis.voice.local_wake import LocalWakeWordController
 
 
 @dataclass(slots=True)
@@ -125,7 +148,22 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             "after the user clearly confirms. In Speaking mode, ask for a clear multi-word answer such as "
             "'sí, hazlo' or 'yes, do it' so a partial voice transcript cannot approve the action. Never claim "
             "that the user confirmed an action. "
-            "Never take a screen capture merely out of curiosity or when a direct local tool can complete the task."
+            "Never take a screen capture merely out of curiosity or when a direct local tool can complete the task. "
+            "Use remember_preference only after an explicit request to remember non-secret information. Use "
+            "recall_memory only when saved context is relevant and forget_memory only when explicitly requested. "
+            "Use open_exact_file_or_folder for exact local names; if it returns ambiguous, ask the user to choose. "
+            "Copy, move, rename, delete, or organize local items only after an explicit user request. Never "
+            "overwrite an existing destination. Deletion always means moving to the operating system trash and "
+            "requires a real later user confirmation. Folder organization also requires confirmation. "
+            "Use open_named_link for friendly names stored in links.txt instead of inventing a URL. Read clipboard "
+            "text only after an explicit request involving copied content. Use analyze_image_file when the user asks "
+            "about a named image file. complete_visible_questionnaire may fill visible confident answers, but it "
+            "must never submit, finish, send, or otherwise commit the questionnaire. Always remind the user to "
+            "review the filled answers. Use save_routine only after an explicit request, and execute saved routines "
+            "and data-only plugins through the guarded planner. undo_last_action works only for a recorded safe "
+            "inverse; never promise that every computer action is reversible. Use the NovaLens companion tools "
+            "only when the user explicitly asks to open NovaLens, hand it a question, select a screen region, or "
+            "analyze its recent audio buffer."
         )
 
     @staticmethod
@@ -390,6 +428,7 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
                 "function_declarations": [
                     *base_functions,
                     *desktop_functions,
+                    *feature_tool_declarations(),
                     task_plan_tool_declaration(),
                 ]
             }
@@ -456,6 +495,11 @@ class HarvisAssistant:
         self._on_status = on_status
         self._on_shutdown_requested = on_shutdown_requested
         self._router = IntentRouter()
+        self._memory = MemoryStore()
+        self._routines = RoutineStore()
+        self._plugins = DeclarativePluginStore()
+        self._novalens = NovaLensBridge()
+        self._activity = ActivityHistory()
         self._task_orchestrator = TaskOrchestrator(
             executor=self._execute_tool,
             on_status=self._notify_status,
@@ -467,6 +511,13 @@ class HarvisAssistant:
         self._confirmation_context_at = 0.0
         self._visual_confirmation_lock = threading.RLock()
         self._pending_visual_confirmation: _PendingVisualConfirmation | None = None
+        self._wake_session_timer: threading.Timer | None = None
+        self._wake_controller = LocalWakeWordController(
+            self._activate_from_wake,
+            language_tag=settings.speech_language,
+            on_status=self._notify_status,
+            on_error=self._handle_local_wake_error,
+        )
 
         self._voice = HarvisGeminiLiveVoice(
             user_name=settings.user_name,
@@ -488,12 +539,39 @@ class HarvisAssistant:
         return self._voice.microphone_muted
 
     def start(self) -> None:
+        if self._local_wake_enabled():
+            try:
+                self._wake_controller.start()
+                return
+            except Exception as exc:
+                self._notify_status(f"Local wake word unavailable: {exc}")
         self._notify_status("Starting Gemini Live assistant")
         self._voice.start()
 
     def stop(self) -> None:
+        self._cancel_wake_session_timer()
+        self._wake_controller.stop()
         self._voice.stop()
         self._notify_status("Assistant stopped")
+
+    def ensure_active_session(self) -> None:
+        """Start Gemini Live on demand for typed or remote interaction."""
+
+        self._wake_controller.stop()
+        if not self._voice.is_running:
+            self._notify_status("Starting Gemini Live assistant")
+            self._voice.start()
+        self._reset_wake_session_timer()
+
+    def open_companion_novalens(self) -> dict[str, Any]:
+        """Open NovaLens through the same audited local tool path."""
+
+        return self._execute_tool("open_novalens", {})
+
+    def undo_last_safe_action(self) -> dict[str, Any]:
+        """Undo the latest recorded action only when Harvis has a safe inverse."""
+
+        return self._execute_tool("undo_last_action", {})
 
     def toggle_microphone_muted(self) -> bool:
         """Toggle microphone forwarding while Harvis remains connected."""
@@ -514,6 +592,7 @@ class HarvisAssistant:
         if self._settings.assistant_mode != "Silent":
             raise SystemActionError("Text commands are available only in Silent mode.")
 
+        self.ensure_active_session()
         self._record_visual_confirmation_response(command, complete_input=True)
         self._set_watermark_context(command)
         if not self._voice.send_text(command):
@@ -524,10 +603,13 @@ class HarvisAssistant:
         previous_language = self._settings.speech_language
         previous_user_name = self._settings.user_name
         previous_mode = self._settings.assistant_mode
+        previous_wake_enabled = self._settings.local_wake_word_enabled
+        previous_wake_timeout = self._settings.wake_session_timeout_seconds
         profile_changed = (
             settings.speech_language != previous_language
             or settings.user_name != previous_user_name
             or settings.assistant_mode != previous_mode
+            or settings.local_wake_word_enabled != previous_wake_enabled
         )
         was_running = self._voice.is_running
 
@@ -541,9 +623,28 @@ class HarvisAssistant:
         self._voice.set_user_name(settings.user_name)
         self._voice.set_silent_mode(settings.assistant_mode == "Silent")
         self._voice.set_language(settings.speech_language)
+        self._wake_controller.set_language(settings.speech_language)
 
-        if profile_changed and was_running and not self._voice.is_running:
-            self._voice.start()
+        if profile_changed:
+            if self._local_wake_enabled():
+                self._voice.stop()
+                try:
+                    self._wake_controller.start()
+                except Exception as exc:
+                    self._notify_status(f"Local wake word unavailable: {exc}")
+                    if was_running:
+                        self._voice.start()
+            else:
+                self._wake_controller.stop()
+                if (
+                    was_running or previous_wake_enabled
+                ) and not self._voice.is_running:
+                    self._voice.start()
+        elif (
+            previous_wake_timeout != settings.wake_session_timeout_seconds
+            and self._voice.is_running
+        ):
+            self._reset_wake_session_timer()
 
     def _handle_live_ready(self) -> None:
         if self._settings.assistant_mode == "Silent":
@@ -580,6 +681,7 @@ class HarvisAssistant:
         return bool(self._settings.ai_watermark_enabled and self._watermark_pending)
 
     def _handle_input_transcript(self, text: str) -> None:
+        self._reset_wake_session_timer()
         self._record_visual_confirmation_response(text, complete_input=False)
         self._set_watermark_context(text, append_fragment=True)
         callback = self._on_heard
@@ -587,6 +689,7 @@ class HarvisAssistant:
             callback(text)
 
     def _handle_output_transcript(self, text: str) -> None:
+        self._reset_wake_session_timer()
         callback = self._on_response
         if callback is not None:
             callback(text)
@@ -603,6 +706,14 @@ class HarvisAssistant:
 
     def _handle_live_error(self, error: Exception) -> None:
         self._notify_status(f"Gemini Live unavailable: {error}")
+
+    def _handle_local_wake_error(self, error: Exception) -> None:
+        """Fall back to Gemini Live if local Windows recognition stops unexpectedly."""
+
+        self._notify_status(f"Local wake word unavailable: {error}")
+        if self._local_wake_enabled() and not self._voice.is_running:
+            self._notify_status("Falling back to Gemini Live listening")
+            self._voice.start()
 
     @staticmethod
     def _normalize_confirmation_text(text: str) -> str:
@@ -765,6 +876,226 @@ class HarvisAssistant:
             )
 
     def _execute_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        result = self._execute_tool_untracked(name, arguments)
+        if name not in {"recent_activity", "undo_last_action"}:
+            undo = self._undo_for_action(name, arguments, result)
+            self._activity.record(name, arguments, result, undo=undo)
+        return result
+
+    def _execute_tool_untracked(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name == "remember_preference":
+            if not self._settings.local_memory_enabled:
+                return {"status": "disabled", "message": "Local memory is disabled in Settings."}
+            return self._memory.remember(
+                str(arguments.get("key", "")),
+                str(arguments.get("value", "")),
+            )
+
+        if name == "recall_memory":
+            if not self._settings.local_memory_enabled:
+                return {"status": "disabled", "message": "Local memory is disabled in Settings."}
+            return self._memory.recall(
+                str(arguments.get("query", "")),
+                limit=int(arguments.get("limit", 10)),
+            )
+
+        if name == "forget_memory":
+            if not self._settings.local_memory_enabled:
+                return {"status": "disabled", "message": "Local memory is disabled in Settings."}
+            return self._memory.forget(str(arguments.get("key", "")))
+
+        if name == "open_exact_file_or_folder":
+            return open_exact_path(str(arguments.get("name", "")))
+
+        if name == "copy_exact_file_or_folder":
+            return copy_item(
+                str(arguments.get("source_name", "")),
+                str(arguments.get("destination_folder_name", "")),
+            )
+
+        if name == "move_exact_file_or_folder":
+            return move_item(
+                str(arguments.get("source_name", "")),
+                str(arguments.get("destination_folder_name", "")),
+            )
+
+        if name == "rename_exact_file_or_folder":
+            return rename_item(
+                str(arguments.get("source_name", "")),
+                str(arguments.get("new_name", "")),
+            )
+
+        if name == "move_path_absolute":
+            return move_path_absolute(
+                str(arguments.get("source_path", "")),
+                str(arguments.get("destination_folder_path", "")),
+            )
+
+        if name == "rename_path_absolute":
+            return rename_path_absolute(
+                str(arguments.get("source_path", "")),
+                str(arguments.get("new_name", "")),
+            )
+
+        if name == "delete_exact_file_or_folder":
+            requested_name = str(arguments.get("name", ""))
+            path, error = resolve_one_exact(requested_name)
+            if error is not None:
+                return error
+            assert path is not None
+            confirmation_target = f"send to trash: {path}"
+            confirmation_state = self._visual_confirmation_state(
+                confirmation_target,
+                "trash",
+            )
+            if confirmation_state != "approved":
+                if confirmation_state not in {"awaiting"}:
+                    self._request_visual_confirmation(confirmation_target, "trash")
+                return {
+                    "status": "confirmation_required",
+                    "operation": "send_to_trash",
+                    "path": str(path),
+                    "recoverable": True,
+                }
+            return send_item_to_trash(path)
+
+        if name == "organize_folder_by_type":
+            requested_name = str(arguments.get("folder_name", ""))
+            path, error = resolve_one_exact(requested_name)
+            if error is not None:
+                return error
+            assert path is not None
+            confirmation_target = f"organize folder by type: {path}"
+            confirmation_state = self._visual_confirmation_state(
+                confirmation_target,
+                "organize",
+            )
+            if confirmation_state != "approved":
+                if confirmation_state not in {"awaiting"}:
+                    self._request_visual_confirmation(confirmation_target, "organize")
+                return {
+                    "status": "confirmation_required",
+                    "operation": "organize_folder_by_type",
+                    "path": str(path),
+                }
+            return organize_folder_by_type(path)
+
+        if name == "open_named_link":
+            return open_named_link(str(arguments.get("name", "")))
+
+        if name == "read_clipboard":
+            clipboard = read_clipboard_text()
+            return {
+                "status": "completed",
+                "characters": len(clipboard),
+                "text": clipboard,
+            }
+
+        if name == "analyze_image_file":
+            return analyze_image(
+                str(arguments.get("name", "")),
+                str(arguments.get("question", "")),
+            )
+
+        if name == "complete_visible_questionnaire":
+            self._notify_status("Inspecting visible questionnaire")
+            return complete_visible_questionnaire(self._execute_tool)
+
+        if name == "save_routine":
+            steps = arguments.get("steps", [])
+            if not isinstance(steps, list):
+                raise ValueError("save_routine requires steps as a list.")
+            self._task_orchestrator.validate(steps)
+            return self._routines.save(str(arguments.get("name", "")), steps)
+
+        if name == "run_routine":
+            routine_name = str(arguments.get("name", ""))
+            routine = self._routines.get(routine_name)
+            if routine is None:
+                return {"status": "not_found", "name": routine_name}
+            steps = routine.get("steps", [])
+            if not isinstance(steps, list):
+                raise ValueError("The saved routine is invalid.")
+            return self._task_orchestrator.execute(steps)
+
+        if name == "list_routines":
+            return self._routines.list()
+
+        if name == "delete_routine":
+            return self._routines.delete(str(arguments.get("name", "")))
+
+        if name == "recent_activity":
+            return self._activity.recent(limit=int(arguments.get("limit", 20)))
+
+        if name == "undo_last_action":
+            undo = self._activity.take_undo()
+            if undo is None:
+                return {
+                    "status": "not_available",
+                    "message": "No safely reversible Harvis action is available.",
+                }
+            action = str(undo.get("action", ""))
+            undo_arguments = undo.get("arguments", {})
+            if not isinstance(undo_arguments, dict):
+                raise ValueError("The recorded undo action is invalid.")
+            result = self._execute_tool_untracked(action, undo_arguments)
+            return {"status": "completed", "undid": action, "result": result}
+
+        if name == "list_plugins":
+            return self._plugins.list()
+
+        if name == "run_plugin":
+            plugin_name = str(arguments.get("name", ""))
+            plugin = self._plugins.get(plugin_name)
+            if plugin is None:
+                return {"status": "not_found", "name": plugin_name}
+            steps = plugin.get("steps", [])
+            if not isinstance(steps, list):
+                raise ValueError("The selected plugin is invalid.")
+            return self._task_orchestrator.execute(steps)
+
+        if name == "open_novalens":
+            try:
+                open_application("NovaLens")
+                return {
+                    "status": "completed",
+                    "application": "NovaLens",
+                    "method": "known_launcher",
+                }
+            except SystemActionError:
+                return open_discovered_application("NovaLens")
+
+        if name in {
+            "ask_novalens",
+            "novalens_analyze_screen_region",
+            "novalens_analyze_recent_audio",
+        }:
+            bridge_action = {
+                "ask_novalens": "ask",
+                "novalens_analyze_screen_region": "screen",
+                "novalens_analyze_recent_audio": "audio",
+            }[name]
+            try:
+                open_application("NovaLens")
+                launch_result: dict[str, Any] = {
+                    "status": "completed",
+                    "application": "NovaLens",
+                    "method": "known_launcher",
+                }
+            except SystemActionError:
+                launch_result = open_discovered_application("NovaLens")
+            if str(launch_result.get("status", "")) != "completed":
+                return {
+                    **launch_result,
+                    "message": "A compatible NovaLens installation could not be opened.",
+                }
+            time.sleep(1.0)
+            return self._novalens.send(
+                bridge_action,
+                text=str(arguments.get("question", "")),
+                wait_for_response=bridge_action == "ask",
+            )
+
         if name == "execute_action_plan":
             steps = arguments.get("steps", [])
             if not isinstance(steps, list):
@@ -947,9 +1278,82 @@ class HarvisAssistant:
                 self._watermark_pending = False
             return result
 
+        if name == "type_text_unwatermarked":
+            # Internal-only path for exact values such as questionnaire
+            # answers. It is deliberately absent from Gemini's tool schema.
+            return type_text(
+                str(arguments.get("text", "")),
+                apply_watermark=False,
+            )
+
         raise ValueError(f"Unsupported Harvis tool: {name}")
+
+    @staticmethod
+    def _undo_for_action(
+        name: str,
+        arguments: dict[str, Any],
+        result: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        if str(result.get("status", "completed")) != "completed":
+            return None
+        if name == "browser_control":
+            action = str(arguments.get("action", ""))
+            inverse = {"close_tab": "reopen_tab", "new_tab": "close_tab"}.get(action)
+            if inverse:
+                return {"action": "browser_control", "arguments": {"action": inverse}}
+        undo = result.get("undo")
+        if isinstance(undo, dict):
+            action = str(undo.get("action", ""))
+            undo_arguments = undo.get("arguments")
+            if action in {"move_path_absolute", "rename_path_absolute"} and isinstance(
+                undo_arguments,
+                dict,
+            ):
+                return {"action": action, "arguments": undo_arguments}
+        return None
 
     def _notify_status(self, status: str) -> None:
         callback = self._on_status
         if callback is not None:
             callback(status)
+
+    def _local_wake_enabled(self) -> bool:
+        return bool(
+            self._settings.local_wake_word_enabled
+            and self._settings.assistant_mode == "Speaking"
+        )
+
+    def _activate_from_wake(self, recognized_text: str) -> None:
+        self.ensure_active_session()
+        command = extract_command(recognized_text)
+        if command:
+            self._set_watermark_context(command)
+            if not self._voice.send_text(command):
+                self._notify_status("Harvis could not queue the wake-word command")
+
+    def _reset_wake_session_timer(self) -> None:
+        if not self._local_wake_enabled():
+            return
+        self._cancel_wake_session_timer()
+        timer = threading.Timer(
+            self._settings.wake_session_timeout_seconds,
+            self._return_to_local_wake,
+        )
+        timer.daemon = True
+        self._wake_session_timer = timer
+        timer.start()
+
+    def _cancel_wake_session_timer(self) -> None:
+        timer = self._wake_session_timer
+        self._wake_session_timer = None
+        if timer is not None:
+            timer.cancel()
+
+    def _return_to_local_wake(self) -> None:
+        if not self._local_wake_enabled():
+            return
+        self._voice.stop()
+        try:
+            self._wake_controller.start()
+        except Exception as exc:
+            self._notify_status(f"Local wake word unavailable: {exc}")
