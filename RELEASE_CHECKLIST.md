@@ -1,216 +1,225 @@
-# Harvis Release Checklist
+# Harvis v1.0.0 Release Checklist
 
-Use this checklist before creating a GitHub release. The release itself is intentionally manual.
+Use this checklist before creating the first public Harvis release. GitHub release publication is intentionally manual.
 
 ## 1. Sync and environment
 
 - [ ] Pull the latest `main` branch.
 - [ ] Confirm the working tree has no unintended local changes.
 - [ ] Confirm Python 3.11 or newer is being used.
-- [ ] Confirm `.venv` is active or use the virtual-environment Python directly.
-- [ ] Install or refresh dependencies with `python -m pip install -r requirements.txt`.
+- [ ] Activate `.venv` or use its Python executable directly.
+- [ ] Refresh dependencies with `python -m pip install -r requirements.txt`.
+- [ ] Confirm `harvis.__version__` reports `1.0.0`.
+
+Version check:
+
+```powershell
+python -c "import harvis; print(harvis.__version__)"
+```
+
+Expected output:
+
+```text
+1.0.0
+```
 
 ## 2. Automated checks
 
-- [ ] Run the full test suite:
+- [ ] Run the full test suite.
 
 ```powershell
 python -m pytest
 ```
 
+- [ ] Confirm there are no failed tests.
 - [ ] Confirm there are no syntax or import failures.
-- [ ] If any test is skipped or fails because of the local environment, record that clearly in the release notes instead of treating the suite as fully passed.
+- [ ] If anything is skipped because of the local environment, record it before publishing instead of describing the suite as fully passed.
 
-## 3. Windows runtime smoke test
+## 3. Core Windows runtime
 
 - [ ] Start Harvis with `python -m harvis`.
-- [ ] Confirm a second normal launch reactivates the existing Harvis instance instead of creating a duplicate process.
+- [ ] Confirm a second normal launch activates the existing Harvis instance instead of creating a duplicate.
 - [ ] Confirm the startup greeting works in Speaking mode.
-- [ ] Confirm Harvis responds without an artificial delay after Gemini Live connects.
-- [ ] Leave Harvis running through the previous idle-disconnect window and confirm it remains usable afterward.
-- [ ] If Gemini Live rotates or drops the connection, confirm Harvis reconnects automatically instead of requiring a process restart.
-- [ ] Confirm a reconnect does not replay the normal startup greeting.
-- [ ] Confirm Harvis shuts down cleanly from its self-shutdown command.
-- [ ] Confirm `START_HARVIS.vbs` launches Harvis without leaving a terminal window visible.
-- [ ] Confirm `%APPDATA%\Harvis\harvis.log` receives runtime output when using the VBS launcher.
+- [ ] Confirm Gemini Live remains responsive after idle time.
+- [ ] Confirm connection rotation or a transient disconnect triggers bounded recovery instead of requiring a Harvis restart.
+- [ ] Confirm reconnecting does not replay the startup greeting.
+- [ ] Confirm Harvis self-shutdown closes Harvis only.
+- [ ] Confirm `START_HARVIS.vbs` launches without leaving a terminal visible.
+- [ ] Confirm `%APPDATA%\Harvis\harvis.log` receives runtime output from the VBS launcher.
 
-## 4. Speaking mode
+## 4. Speaking and Silent modes
 
-- [ ] Confirm microphone input works.
-- [ ] Confirm Gemini voice output works.
-- [ ] Confirm the configured voice volume is respected.
-- [ ] Confirm the preferred language setting is respected.
-- [ ] Confirm the Sphere visualizer reacts to real Gemini audio.
-- [ ] Ask Harvis a normal question and confirm the Sphere smoothly morphs into the rotating loading indicator while the request is being processed.
-- [ ] Confirm the normal audio-reactive Sphere returns when Harvis begins responding.
-- [ ] Ask Harvis to visually find a harmless target and confirm the loading indicator is active while the locator is searching.
-- [ ] Confirm the Sphere returns after the visual search succeeds, fails safely, or requests confirmation.
-- [ ] Short-click the Sphere and confirm microphone forwarding becomes muted.
-- [ ] Confirm the muted Sphere shows the diagonal indicator.
-- [ ] Speak while muted and confirm Harvis does not receive the microphone audio.
-- [ ] Short-click the Sphere again and confirm microphone forwarding resumes immediately without reconnecting Gemini Live.
-- [ ] Drag the Sphere and confirm moving it does not toggle the microphone state.
-- [ ] Confirm the Bars visualizer reacts to real Gemini audio.
-- [ ] Confirm visualizer previews still work independently.
+- [ ] Confirm microphone input works in Speaking mode.
+- [ ] Confirm Gemini native voice output works.
+- [ ] Confirm configured voice volume and preferred language are respected.
+- [ ] Confirm Sphere and Bars react to real Gemini audio.
+- [ ] Confirm the Sphere loading animation appears while Harvis processes a request and returns when appropriate.
+- [ ] Short-click Sphere to mute and unmute microphone forwarding without reconnecting Gemini Live.
+- [ ] Confirm the muted Sphere indicator is visible.
+- [ ] Confirm dragging Sphere does not toggle microphone state.
+- [ ] Switch to Silent mode and confirm microphone and speaker streams are not used.
+- [ ] Confirm the compact Silent popup accepts typed commands without a wake name.
+- [ ] Switch back to Speaking mode and confirm the normal live surface returns.
 
-Preview commands:
+Visualizer previews:
 
 ```powershell
 python -m harvis --visualizer-preview sphere
 python -m harvis --visualizer-preview bars
 ```
 
-## 5. Silent mode
+## 5. Desktop actions and guarded workflows
 
-- [ ] Switch Settings > General > Mode to `Silent` and save.
-- [ ] Confirm the microphone and speaker streams are not used.
-- [ ] Confirm the compact text popup appears.
-- [ ] Confirm the popup is transparent, movable, and always on top.
-- [ ] Confirm typed commands work without saying Harvis or Jarvis.
-- [ ] Confirm a queued typed command can still be sent after a transient Live reconnect.
-- [ ] Confirm visual searches show generic status text such as `Searching...` rather than exposing the target name.
-- [ ] Switch back to `Speaking` and confirm the normal live surface returns correctly.
+Use harmless test targets.
 
-## 6. Desktop tools
-
-Test representative actions without using sensitive or destructive targets:
-
-- [ ] Open an installed application.
-- [ ] Close an installed application.
+- [ ] Open and close an installed application.
 - [ ] Open an HTTP or HTTPS URL.
 - [ ] Change master volume.
-- [ ] Use a browser action such as opening a new tab.
-- [ ] Use a media action if media is available.
+- [ ] Perform a browser action and a media action.
 - [ ] Scroll a page or document.
-- [ ] Type a short Unicode sentence with punctuation.
-- [ ] Type a multi-line sequence that uses physical Enter presses correctly.
+- [ ] Type Unicode text and a multi-line sequence using physical Enter handling.
+- [ ] Run a harmless workflow containing at least three ordered actions.
+- [ ] Confirm long workflows wait for screen stability after UI-changing actions.
+- [ ] Confirm a required `ready_target` prevents a dependent action from running until the target appears.
+- [ ] Confirm `vision_click` waits for its target before clicking.
+- [ ] Confirm missing or low-confidence targets stop the remaining workflow.
+- [ ] Confirm invalid plans fail before the first action runs.
+- [ ] Confirm one-step and two-step plans remain responsive without unnecessary long-workflow guards.
+- [ ] Confirm sensitive visual actions require real user confirmation.
+- [ ] Confirm an AI-supplied confirmation argument cannot bypass the local confirmation gate.
 
-## 7. Mobile remote control
+## 6. Mobile remote and voice routing
 
-Use a phone or tablet connected to the same trusted local network as the Harvis computer:
+Use a phone on the same trusted private LAN.
 
-- [ ] Confirm mobile remote control is `Off` by default for an existing or fresh settings file.
-- [ ] Enable Settings > Advanced > `Remote control`, save settings, and confirm a phone URL and six-digit pairing code appear.
-- [ ] Open the phone URL and confirm the responsive Harvis Remote page loads.
-- [ ] Confirm an incorrect pairing code is rejected.
-- [ ] Pair with the displayed code and confirm authenticated status polling begins.
-- [ ] Send a harmless text command from the phone while Harvis is in Speaking mode and confirm the same Gemini Live assistant handles it.
-- [ ] Switch to Silent mode and confirm a paired phone command still reaches Harvis.
-- [ ] Confirm the mobile page displays the latest Harvis status and response transcript.
-- [ ] In Speaking mode, mute and unmute the microphone from the phone and confirm both actual microphone forwarding and the Sphere indicator stay in sync.
-- [ ] Confirm the microphone control is unavailable or rejected in Silent mode.
-- [ ] Change the configured remote port and confirm the server restarts on the new port with a new pairing code and browser token.
-- [ ] Restart Harvis and confirm the previous browser token no longer authorizes requests until the phone pairs again.
-- [ ] Confirm disabling remote control stops the local server.
-- [ ] Confirm no router port forwarding is required and do not expose the remote-control port to the public Internet.
+- [ ] Confirm mobile remote control is off by default.
+- [ ] Enable it from `Settings > Advanced` and save.
+- [ ] Confirm Harvis shows a phone URL and six-digit pairing code.
+- [ ] Open the phone URL and confirm the controller loads.
+- [ ] Confirm a wrong pairing code is rejected.
+- [ ] Pair successfully and confirm status polling begins.
+- [ ] Send a harmless remote command in Speaking mode.
+- [ ] Send a harmless remote command in Silent mode.
+- [ ] Confirm the latest response transcript appears on the phone.
+- [ ] Toggle microphone mute from the phone and confirm the desktop Sphere stays in sync.
+- [ ] Select `Computer only` and confirm Harvis voice plays only on the PC.
+- [ ] Select `Phone only`, enable browser audio if requested, and confirm the PC stays quiet while Harvis voice plays on the phone.
+- [ ] Select `Phone + computer` and confirm the same Harvis response plays on both devices.
+- [ ] Confirm switching back to `Computer only` stops phone playback.
+- [ ] Restart Harvis and confirm the old browser token requires pairing again.
+- [ ] Confirm the new pairing code works after restart.
+- [ ] Disable mobile remote control and confirm the local server stops.
+- [ ] Confirm stopping the remote restores voice routing to `Computer only`.
+- [ ] Do not configure router port forwarding for the Harvis remote port.
 
-## 8. Multi-step task orchestration
+## 7. Local knowledge, files, routines, plugins, and Undo
 
-Use harmless deterministic workflows for these checks:
+- [ ] Add, update, recall, and delete a harmless non-secret memory.
+- [ ] Confirm password, API-key, token, and secret-like memories are rejected.
+- [ ] Add and open a temporary friendly link from `links.txt`, then remove it.
+- [ ] Open representative exact-name folder, image, PDF, video, and text-file items.
+- [ ] Confirm duplicate exact-name matches return ambiguity rather than guessing.
+- [ ] Copy, move, and rename temporary test items without overwriting existing destinations.
+- [ ] Confirm supported move or rename actions can be reverted with safe Undo.
+- [ ] Confirm Trash and folder organization require real subsequent confirmation.
+- [ ] Save, run, and delete a harmless routine.
+- [ ] Run bundled JSON-only plugins and confirm arbitrary Python plugin files are not executed.
+- [ ] Inspect the activity log and confirm typed content, memory values, keys, tokens, and passwords are not stored in plaintext.
+- [ ] Explicitly request clipboard context and confirm Harvis uses current clipboard content without maintaining a history.
 
-- [ ] Give Harvis one long instruction containing at least three ordered computer actions and confirm it can execute the sequence as one task plan.
-- [ ] Confirm actions run in the same order requested by the user.
-- [ ] Confirm a plan with more than two steps performs screen-readiness checks between UI-changing actions.
-- [ ] Confirm a long plan waits while a newly opened application or page is still visually changing instead of immediately running the next UI-dependent action.
-- [ ] Add a `ready_target` to a non-click step and confirm Harvis does not run that step until the requested visible field, button, icon, text label, or UI state is found.
-- [ ] Confirm a `vision_click` step automatically waits for its own target before attempting the click even when `ready_target` is omitted.
-- [ ] Confirm a missing readiness target stops the remaining workflow before the dependent step runs.
-- [ ] Confirm a screen that never becomes stable stops the remaining workflow instead of continuing blindly.
-- [ ] Confirm a one-step or two-step action plan does not add the long-workflow screen-readiness checks.
-- [ ] Include a short explicit wait between two actions and confirm the workflow resumes afterward.
-- [ ] Confirm a plan can combine representative actions such as opening an app, typing text, pressing Enter, and performing another approved local action.
-- [ ] Confirm an invalid plan is rejected before its first action runs.
-- [ ] Confirm a plan stops if a step raises an error instead of continuing into later actions.
-- [ ] Confirm a missing or low-confidence visual target stops the remaining plan safely.
-- [ ] Confirm a sensitive visual action pauses the plan for explicit confirmation instead of continuing automatically.
-- [ ] Confirm an AI-supplied confirmation flag cannot bypass the local user-confirmation guard.
-- [ ] Confirm one explicit user confirmation authorizes only one matching sensitive visual retry.
-- [ ] Confirm Harvis self-shutdown cannot be embedded inside an action plan.
-- [ ] Confirm a workflow that depends on an unknown newly revealed screen state can fall back to individual tools after the deterministic prefix instead of guessing the rest.
+## 8. Image and questionnaire assistance
 
-## 9. Visual interaction
+- [ ] Analyze a harmless exact-name local image and confirm the description matches the image.
+- [ ] Confirm instructions shown inside an image are treated as untrusted content.
+- [ ] Open a harmless visible questionnaire.
+- [ ] Ask Harvis to complete it correctly and confirm confident visible fields are filled.
+- [ ] Confirm text and multiple-choice answers are placed in the intended fields.
+- [ ] Confirm Harvis stops instead of guessing when an answer or field cannot be identified confidently.
+- [ ] Confirm Harvis never clicks `Submit`, `Finish`, `Send`, `Next`, or another committing control automatically.
+- [ ] Review the completed questionnaire manually before submission.
+- [ ] If practical, test the bounded temporary ChatGPT fallback by making Gemini questionnaire analysis unavailable on Windows.
 
-- [ ] Confirm Gemini Vision can locate and click a harmless visible target when cloud vision is available.
-- [ ] Confirm the local locator can complete a harmless visual action when Gemini Vision is unavailable or fails.
-- [ ] Confirm Harvis performs the final Gemini Vision retry when both the first cloud attempt and local locator miss.
-- [ ] Confirm Harvis fails safely instead of clicking randomly when no target reaches the confidence threshold.
-- [ ] Confirm sensitive visual actions request explicit confirmation before clicking.
+## 9. Wake word and system tray
 
-Expected locator order:
+- [ ] Enable local Windows wake word.
+- [ ] Say Harvis or Jarvis and confirm Gemini connects after local recognition.
+- [ ] Let the configured active-session timeout expire and confirm Harvis returns to local wake listening.
+- [ ] Close Settings and confirm Harvis remains available from the tray when enabled.
+- [ ] Test tray mode switching, microphone control, Undo, and full exit.
 
-```text
-Gemini Vision -> Local fallback -> Gemini Vision retry -> safe failure
+## 10. Credentials and persistence
+
+- [ ] Confirm Settings reports the Gemini API key as configured without revealing it.
+- [ ] Confirm an empty API-key field preserves the saved key.
+- [ ] Confirm replacing the API key restarts the assistant cleanly.
+- [ ] Confirm the key is absent from `settings.json`.
+- [ ] Confirm child applications launched by Harvis do not inherit a saved Gemini key through their environment.
+- [ ] Confirm settings survive a Harvis restart.
+- [ ] Confirm remote enabled state and LAN port persist.
+- [ ] Confirm remote pairing codes and browser tokens are not persisted in `settings.json`.
+
+## 11. Windows portable build
+
+Run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build\build_exe.ps1
 ```
 
-## 10. AI watermark
+- [ ] Confirm the test suite passes during the build script.
+- [ ] Confirm `dist\Harvis\Harvis.exe` is created.
+- [ ] Launch the packaged executable and repeat a short Speaking, Silent, visual, and remote smoke test.
+- [ ] Confirm packaged Harvis can find its required dependencies.
+- [ ] Confirm no development API key or personal file is bundled into `dist\Harvis`.
 
-With Settings > AI > `AI watermark` set to `On`:
+## 12. Windows installer
 
-- [ ] Ask Harvis to write or draft text and confirm the content begins with `#G6m2i9 `.
-- [ ] Ask Harvis to write multiple lines and confirm the marker appears only once at the beginning of the authored content.
-- [ ] Perform a search and confirm the query does not receive the marker.
-- [ ] Enter or open a URL and confirm it does not receive the marker.
-- [ ] Perform navigation or browser-field entry and confirm it does not receive the marker.
-- [ ] Send an authored-writing request from the paired mobile page and confirm it follows the same watermark behavior.
+Run:
 
-Then set `AI watermark` to `Off`:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build\build_installer.ps1 -Version "1.0.0"
+```
 
-- [ ] Confirm authored text is written without the marker.
+Expected artifact:
 
-## 11. Credentials and settings
+```text
+dist\installer\Harvis-Setup-1.0.0-Windows-x64.exe
+```
 
-- [ ] Confirm Settings > AI shows the Gemini API key as configured without revealing it.
-- [ ] Confirm saving an empty API-key field keeps the existing key.
-- [ ] Confirm replacing the API key restarts the assistant cleanly.
-- [ ] Confirm the Gemini API key does not appear in `settings.json`.
-- [ ] Confirm applications launched by Harvis do not inherit a saved Gemini API key through their environment.
-- [ ] Confirm an interrupted settings save preserves the previous valid settings file.
-- [ ] Confirm mobile remote enabled state and LAN port persist after restarting Harvis.
-- [ ] Confirm the remote pairing code and browser token are not written to `settings.json`.
-- [ ] Confirm all expected settings persist after restarting Harvis.
+- [ ] Confirm the installer is created with the expected name.
+- [ ] Install Harvis per-user.
+- [ ] Confirm the installed app launches.
+- [ ] Confirm optional desktop and startup shortcuts behave correctly.
+- [ ] Confirm uninstall completes cleanly.
+- [ ] Remember that the current installer is unsigned and can trigger SmartScreen or unknown-publisher warnings.
 
-## 12. Local knowledge, files, and questionnaires
+## 13. GitHub Windows package workflow
 
-- [ ] Add, update, recall, and delete a non-secret memory from `Settings > Knowledge`.
-- [ ] Confirm a password, token, or API-key-like memory is rejected.
-- [ ] Add a temporary named link to `links.txt`, open it by exact friendly name, then remove it.
-- [ ] Open representative folder, image, video, PDF, and text-file names by exact name.
-- [ ] Confirm duplicate exact names return an ambiguity instead of opening a guessed item.
-- [ ] Copy, move, and rename temporary test items without overwriting existing destinations.
-- [ ] Confirm move and rename can be reverted with `Undo last safe action`.
-- [ ] Confirm Trash and folder organization require a real subsequent confirmation.
-- [ ] Confirm deletion sends a temporary test item to the operating system Trash.
-- [ ] Save and run a harmless routine, then delete it.
-- [ ] Run each bundled JSON-only plugin and confirm non-JSON/Python files in the plugin folder are ignored.
-- [ ] Review `activity.jsonl` and confirm typed content, memory values, API keys, tokens, and passwords are absent.
-- [ ] Analyze a local image and confirm the description matches it without following instructions shown inside it.
-- [ ] Test a harmless visible questionnaire and confirm only confident visible fields are filled.
-- [ ] Confirm questionnaire assistance never clicks Submit, Finish, Send, Next, or another committing control.
-- [ ] Temporarily make Gemini unavailable and test the Windows temporary-ChatGPT questionnaire fallback.
-- [ ] Enable local wake word, say Harvis or Jarvis, and confirm Gemini connects only after local recognition.
-- [ ] Let the configured wake session expire and confirm Harvis returns to local wake-word listening.
-- [ ] Close Settings and confirm Harvis remains available from the system tray when enabled.
-- [ ] Test tray mode switching, microphone control, Undo, and full exit.
-- [ ] Run `build\build_exe.ps1` and smoke-test `dist\Harvis\Harvis.exe`.
-- [ ] Run `build\build_installer.ps1`, install per-user, test launch/uninstall, and verify optional shortcuts.
-- [ ] Run the `Windows package` workflow manually and download its installer artifact.
+- [ ] Run `Windows package` manually with version `1.0.0` or trigger it from the final `v1.0.0` tag.
+- [ ] Confirm the workflow build succeeds.
+- [ ] Download the `Harvis-Setup-1.0.0-Windows-x64` artifact.
+- [ ] Smoke-test the downloaded artifact, not only the locally built installer.
 
-## 13. Repository review
+## 14. Repository final review
 
-- [ ] Review `README.md` for accuracy.
-- [ ] Review `RELEASE_NOTES.md` and replace `vX.Y.Z` with the chosen release version.
-- [ ] Confirm `LICENSE` still contains the complete GNU GPLv3 text.
-- [ ] Confirm no API keys, secrets, logs, virtual environments, build folders, or personal temporary files are tracked.
-- [ ] Confirm all committed repository text is in English.
-- [ ] Confirm the Windows and Linux GitHub Actions jobs pass on the release commit.
+- [ ] Confirm `README.md` describes the current `main` branch accurately.
+- [ ] Confirm `RELEASE_NOTES.md` is titled `Harvis v1.0.0 Release Notes`.
+- [ ] Confirm `LICENSE` contains the complete GNU GPLv3 license.
+- [ ] Confirm no API keys, secrets, logs, `.venv`, build output, or personal temporary files are tracked.
+- [ ] Confirm committed repository text is in English.
+- [ ] Confirm the final release commit has the expected GitHub checks or workflows completed.
 
-## 14. GitHub release
+## 15. Manual GitHub release
 
-- [ ] Choose the final semantic version and tag.
-- [ ] Use the updated `RELEASE_NOTES.md` as the basis for the GitHub release description.
-- [ ] Mark the release as a pre-release if it is still considered experimental.
-- [ ] Publish only after the runtime smoke tests above are complete.
+Only after the applicable checks above are complete:
 
-## Current packaging note
+- [ ] Create tag `v1.0.0` from the final release commit.
+- [ ] Create GitHub release `Harvis v1.0.0`.
+- [ ] Use `RELEASE_NOTES.md` as the release description basis.
+- [ ] Attach `Harvis-Setup-1.0.0-Windows-x64.exe` and any intended portable archive.
+- [ ] Disclose that Windows artifacts are currently unsigned.
+- [ ] Publish the release manually.
 
-The repository includes repeatable PyInstaller and Inno Setup builds plus a Windows packaging workflow. The artifacts are not code-signed, so the release must disclose the possible Windows SmartScreen unknown-publisher warning.
+## Release status
+
+Do not publish v1.0.0 until the automated suite, packaged-runtime smoke test, installer smoke test, and critical safety checks above have passed. Harvis should fail safely when visual confidence, questionnaire confidence, or confirmation requirements are not satisfied.
