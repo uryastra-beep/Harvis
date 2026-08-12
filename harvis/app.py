@@ -81,10 +81,10 @@ class HarvisSettingsWindow(SettingsWindow):
         self._system_tray: QSystemTrayIcon | None = None
         self._force_exit = False
         self._memory_store = MemoryStore()
+        super().__init__(settings_store)
         self._update_signals = UpdateSignals(self)
         self._update_signals.result.connect(self._show_update_result)
         self._update_signals.error.connect(self._show_update_error)
-        super().__init__(settings_store)
         set_ai_watermark_enabled(self._settings.ai_watermark_enabled)
 
     def set_assistant(self, assistant: RemoteCapableHarvisAssistant) -> None:
