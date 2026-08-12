@@ -1,139 +1,145 @@
-# Harvis Release Notes Draft
+# Harvis v1.0.0 Release Notes
 
-> Replace the version placeholder below before publishing the GitHub release.
+Harvis v1.0.0 is the first public release of the Harvis desktop personal assistant. It combines Gemini Live conversation with guarded local computer control, visual interaction, local knowledge, reusable automation, and a paired mobile controller.
 
-## Harvis vX.Y.Z
+> Publication remains manual. Complete `RELEASE_CHECKLIST.md` before creating the GitHub release.
 
-Harvis is a Python desktop personal assistant that combines Gemini Live conversation with approved local computer-control tools, visual interaction, configurable Speaking and Silent modes, optional audio-reactive visualizers, and paired mobile control over the local network.
+## Highlights
 
-### Highlights
+- Real-time Gemini Live native-audio conversation.
+- Spanish (Latin America) and English response preferences.
+- Automatic Gemini Live reconnection with session resumption, context-window compression, and bounded reconnect backoff.
+- Speaking and Silent interaction modes.
+- Guarded multi-step desktop workflows with screen-stability and visible-target readiness checks.
+- Gemini Vision visual interaction with a local fallback and safe failure behavior.
+- Local enforcement of confirmation for sensitive visual actions.
+- Paired mobile remote control over a trusted local network.
+- Harvis voice routing to the computer, the paired phone, or both devices.
+- Local memory, named links, routines, JSON-only plugins, activity history, and limited safe Undo.
+- Exact-name local file opening plus guarded copy, move, rename, Trash, and folder organization.
+- Local image analysis and visible-questionnaire assistance without automatic submission.
+- Optional local Windows wake-word activation.
+- System-tray controls.
+- PyInstaller portable Windows build and Inno Setup installer workflow.
+- GNU GPLv3 licensing.
 
-- Gemini Live native-audio conversation with Spanish (Latin America) and English response preferences.
-- Automatic Gemini Live reconnection after idle or server-side connection rotation, with session resumption when a resumable handle is available.
-- Context-window compression for longer-running Live sessions.
-- Multi-step task orchestration for long single-instruction desktop workflows.
-- Automatic screen-stability and visible-target readiness guards for workflows with more than two steps.
-- Paired mobile remote control from a phone browser on the same trusted local network.
-- Speaking mode for microphone and voice interaction.
-- Silent mode with a compact transparent text-command popup and no microphone or speaker streams.
-- Secure Gemini API key storage from Settings.
-- Single-instance startup behavior that reactivates the existing Harvis process.
-- Local application discovery for opening and closing installed apps.
-- Browser, media, system-volume, keyboard, mouse, scrolling, and Harvis self-shutdown tools.
-- Visual clicking with Gemini Vision as the primary locator, a local fallback stack, and a final Gemini Vision retry.
-- Locally enforced confirmation for sensitive or destructive visual actions that cannot be bypassed by an AI-supplied flag.
-- Live Sphere and Bars visualizers driven by Gemini output audio.
-- Click the live Sphere to mute or unmute microphone forwarding without disconnecting Gemini Live.
-- A visible diagonal indicator on the Sphere while the microphone is muted.
-- Smooth Sphere-to-spinner transition while Harvis is processing a request or searching for a visual target.
-- Optional `#G6m2i9` AI-authorship watermark for content Harvis is asked to write.
-- Watermark intent filtering so searches, URLs, navigation, and other operational typing stay unmarked.
-- Improved Unicode typing and explicit physical Enter handling.
-- Cleaner Gemini Live startup, shutdown, latency, and reconnect behavior.
-- User-controlled local memory with explicit secret rejection.
-- Exact-name opening for folders, photos, videos, PDFs, documents, and other files.
-- Guarded copy, move, rename, Trash, and folder-organization operations.
-- Editable friendly web shortcuts through `links.txt`.
-- Local-image descriptions and visible-questionnaire assistance.
-- A temporary ChatGPT questionnaire fallback when Gemini analysis is unavailable on Windows.
-- Reusable routines, JSON-only plugins, redacted activity history, and limited safe Undo.
-- Optional local Windows wake-word activation and a configurable active-session timeout.
-- System-tray controls for mode, microphone, Undo, and exit.
-- GitHub release checks, a PyInstaller executable build, an Inno Setup installer, and a Windows packaging workflow.
+## Mobile remote control
 
-### Local knowledge and automation
+`Settings > Advanced > Mobile remote control` can expose a responsive controller to phones and tablets on the same trusted local network.
 
-Harvis now stores explicit non-secret memories in a bounded local file managed from `Settings > Knowledge`. It rejects password, API-key, token, and secret-like entries. The same page provides direct access to friendly named links, saved routines, JSON-only plugins, and the redacted activity log.
+The paired mobile page can:
 
-Routines and plugins execute only through the existing guarded action planner. Plugin files are declarative JSON; Harvis does not import or execute plugin Python code. Activity history omits typed content and secret-like arguments, while Undo is exposed only for a small set of actions that recorded a safe inverse.
+- Send text commands to the active Gemini Live assistant in Speaking or Silent mode.
+- Show the latest Harvis status and response transcript.
+- Mute or unmute microphone forwarding while Speaking mode is active.
+- Select the Harvis voice output target.
 
-### Files, images, and questionnaires
+Voice output supports:
 
-Harvis can find standard user-folder items by exact name and open them with the operating system default application. Explicit requests can copy, move, or rename without overwriting. Trash and folder organization require a real subsequent confirmation, and deletion remains recoverable through the operating system Trash.
+- `Computer only` - Harvis voice plays only through the desktop audio output.
+- `Phone only` - the computer remains quiet and the paired phone plays Harvis voice.
+- `Phone + computer` - the same Harvis response is played on both devices.
 
-Gemini Vision can briefly describe an exact-name local image. For visible questionnaires, Harvis uses one guarded inspection, fills exact visible answer points from bottom to top, and never submits the form. When Gemini analysis is unavailable on Windows, a bounded temporary-ChatGPT fallback can copy visible question text, obtain structured answers, return to the form, and use only offline field location. Educational password questions no longer trigger the credential-field block. If safe automatic filling cannot continue, Harvis stops instead of delegating typing to the user. The user remains responsible for review and submission.
+Phone playback uses the actual 24 kHz mono PCM16 audio returned by Gemini Live. It does not generate a separate browser text-to-speech voice. Mobile browsers can require a one-time user gesture before audio playback; the controller displays an `Enable phone speaker` action when needed.
 
-### Wake word, tray, and packaging
+Pairing uses a six-digit code and an ephemeral browser token. The pairing code and token are regenerated when the remote server restarts. Repeated incorrect pairing attempts are rate-limited. Remote commands, status, microphone control, audio-output changes, and phone audio retrieval all require authentication.
 
-Optional local wake-word mode uses Windows SAPI to recognize Harvis or Jarvis before opening the Gemini Live microphone session. System-tray controls keep common actions available when the Settings window is hidden.
+The remote is LAN-only and currently uses HTTP rather than TLS. Do not expose the remote-control port through public Internet port forwarding or use it on an untrusted network.
 
-The repository now contains repeatable Windows executable and installer scripts. A packaging workflow uploads a tested installer artifact but intentionally leaves GitHub release publication manual.
+## Speaking and Silent modes
 
-### Mobile remote control
+Speaking mode uses microphone input and Gemini Live native voice output. Harvis can display either the Sphere or Bars live visualizer. A short click on the Sphere toggles microphone forwarding without disconnecting Gemini Live, and a visible diagonal indicator appears while the microphone is muted.
 
-Settings > Advanced now includes a `Mobile remote control` group. When enabled, Harvis serves a responsive controller to devices on the same local network and shows both the phone URL and a six-digit pairing code inside the Settings window.
+While Harvis is processing a request or looking for a visual target, the Sphere can morph into a rotating loading indicator and return to its normal audio-reactive state when the task continues or completes.
 
-The paired phone page can send text commands to the active Gemini Live assistant in either Speaking or Silent mode, read the latest Harvis status and response transcript, and mute or unmute microphone forwarding while Harvis is in Speaking mode.
+Silent mode does not open microphone or speaker streams. It uses a compact always-on-top text command popup, and typed commands are treated as directly addressed to Harvis.
 
-Pairing returns a random browser token. The pairing code and browser token are regenerated whenever the remote server restarts, including when Harvis restarts or the configured LAN port changes. Repeated incorrect pairing attempts are rate-limited.
+## Desktop control and guarded workflows
 
-The server accepts only private, loopback, or link-local client addresses. It is intended for trusted local networks and does not require Internet port forwarding. The current controller uses local HTTP rather than TLS, so it must not be exposed to public or untrusted networks.
+Harvis can perform approved local actions including application launch and close, browser controls, media controls, master volume changes, typing, physical Enter presses, pointer movement, scrolling, URL opening, and Harvis self-shutdown.
 
-### Multi-step task orchestration
+Long instructions can be converted into bounded action plans of up to 24 approved steps. Plans with more than two steps use additional visual readiness protection. Harvis can wait for the screen to stabilize and for a required visible target before continuing. Missing targets, low confidence, unavailable vision, unstable screens, tool errors, or confirmation-required actions stop the remaining workflow rather than allowing Harvis to continue blindly.
 
-Harvis includes an `execute_action_plan` tool backed by a local task-orchestration layer. Gemini can convert one long user instruction into an ordered plan of approved actions instead of relying on a loose sequence of independent function calls.
+Harvis self-shutdown closes only Harvis. It never shuts down, restarts, sleeps, locks, or signs out of the operating system.
 
-Plans are validated completely before execution and are bounded to 24 steps. They can include application open or close actions, URLs, volume changes, browser and media controls, pointer movement, scrolling, visual clicks, typing, physical Enter presses, and short waits for UI transitions.
+## Visual interaction
 
-When a plan contains more than two steps, Harvis treats it as a guarded long workflow. After UI-changing actions, Harvis samples the visible desktop and waits for the screen to settle before allowing the next step to run. Short one-step and two-step plans do not receive these extra readiness checks.
+The visual target strategy is:
 
-A step can also declare a `ready_target` when it must wait for a specific visible button, field, icon, text label, or UI state. Harvis keeps checking for the target for a bounded period and stops the remaining plan if it never becomes confidently visible. `vision_click` steps automatically use their own click target as a readiness checkpoint, so Harvis will not attempt the click until the requested target has appeared.
+```text
+Gemini Vision
+    -> local locator fallback when Gemini is unavailable or uncertain
+    -> final Gemini Vision retry if the local locator also misses
+    -> safe failure when no confident target is found
+```
 
-Screen-stability checks default to a bounded six-second window. Visible readiness targets default to ten seconds and can be configured up to fifteen seconds. These checks are intentionally fail-safe: an unavailable screen capture, a screen that never settles, a missing target, or a low-confidence target stops the workflow instead of letting later steps run against the wrong UI.
+Consequential or destructive visual targets require a real subsequent user confirmation. An AI-supplied confirmation argument cannot authorize the action by itself.
 
-Explicit wait steps are still capped at 5 seconds each and 15 seconds total per plan. Harvis self-shutdown cannot be placed inside a plan.
+## Local knowledge, files, routines, and plugins
 
-The orchestrator also stops when an action fails, Gemini Vision is unavailable for a required visual step, or a sensitive visual action requires confirmation. Dynamic workflows whose later steps depend on an unknown newly observed UI state can use the plan for the deterministic prefix and then continue with individual tools.
+`Settings > Knowledge` provides user-controlled local memory and related automation features.
 
-### Gemini Live session recovery
+Harvis can store explicit non-secret memories and rejects password, API-key, token, and secret-like entries. Friendly named links can be stored in `links.txt`. Reusable routines execute through the same guarded task orchestrator used by one-time plans.
 
-Harvis enables Gemini Live session resumption and context-window compression. If a long-running Live connection is rotated or drops after Harvis has been idle, Harvis keeps the desktop process alive and attempts to reconnect with bounded exponential backoff instead of leaving the assistant permanently unresponsive.
+Plugins are declarative JSON plans loaded from the Harvis plugin directory. Harvis does not import or execute arbitrary Python plugin files.
 
-When Gemini provides a resumable session handle, Harvis reuses the latest valid handle on the next connection so conversational state can continue across the WebSocket rotation. Reconnects do not replay the normal startup greeting. Typed Silent-mode commands that fail during transport are returned to the local queue for a retry after reconnection.
+Harvis keeps a bounded, redacted activity history. Typed text, memory values, and secret-like arguments are omitted or redacted. Undo is intentionally limited to actions that record a supported safe inverse.
 
-After repeated rapid reconnect failures, Harvis stops retrying and surfaces an unavailable status instead of creating an endless reconnect loop.
+## Local files and images
 
-### Sphere microphone control
+Harvis can find and open exact-name folders, photos, videos, PDFs, documents, and other files from standard user folders. Ambiguous exact-name matches are reported instead of guessed.
 
-In Speaking mode, a short click on the live Sphere toggles microphone forwarding. Harvis keeps the Gemini Live session connected and leaves the audio stream open, so unmuting is immediate.
+Explicit requests can copy, move, or rename items without overwriting existing destinations. Trash and folder organization use local confirmation gates, and deletion goes through the operating-system Trash rather than permanent deletion.
 
-Dragging the Sphere continues to reposition it without toggling the microphone. While muted, the Sphere displays a diagonal tertiary-color indicator. The same microphone state can now be toggled from an authenticated mobile remote.
+Harvis can also analyze supported exact-name local image files with Gemini Vision while treating instructions visible inside images as untrusted content.
 
-### Sphere loading state
+## Questionnaire assistance
 
-When Harvis starts processing a recognized request, the live Sphere smoothly shrinks and fades into a rotating multi-ring loading indicator using the Harvis secondary and tertiary colors. It returns to the normal audio-reactive Sphere when a response begins.
+Harvis can inspect a visible questionnaire and fill confident visible answer fields when the user explicitly asks it to complete the questionnaire. It can handle visible text fields and multiple-choice targets while stopping safely when it cannot identify an answer or field with sufficient confidence.
 
-Visual target searches explicitly reactivate the loading state while the locator is working and return to the normal Sphere when the visual action succeeds, fails safely, or requires confirmation.
+Harvis does not automatically click `Submit`, `Finish`, `Send`, `Next`, or other committing controls. The user remains responsible for reviewing and submitting the completed questionnaire.
 
-### AI watermark behavior
+On Windows, a bounded temporary ChatGPT browser fallback is available when Gemini questionnaire analysis is unavailable. The fallback obtains structured answers and returns to the questionnaire while continuing to use Harvis's guarded local field locator.
 
-When `AI watermark` is enabled in Settings > AI, Harvis prefixes AI-authored content with:
+## Local wake word and tray
+
+On Windows, optional local wake-word mode can use Windows SAPI to recognize `Harvis` or `Jarvis` before opening the Gemini Live microphone session. After the configured active-session timeout, Harvis can return to local wake-word listening.
+
+System-tray controls keep common actions available while the Settings window is hidden, including interaction mode, microphone state, Undo, and full exit.
+
+## AI authorship watermark
+
+When `Settings > AI > AI watermark` is enabled, Harvis can prefix AI-authored written content with:
 
 ```text
 #G6m2i9 
 ```
 
-The watermark is intended for written content that Harvis authors. It is not added to search queries, URLs, browser navigation, or similar operational text entry. Mobile commands use the same local watermark-intent path as other text instructions.
+The marker is intended for content Harvis is asked to author. Searches, URLs, navigation, and other operational typing remain unmarked.
 
-### Visual fallback behavior
+## Credential handling
 
-Harvis currently uses this visual target strategy:
+The Gemini API key can be configured from Harvis Settings.
+
+On Windows, Harvis stores the saved key in Windows Credential Manager. On Linux, it uses a user-only secrets file with restrictive permissions. The key is not written to `settings.json`, and saved credentials are not intentionally exported into child-process environments.
+
+## Windows packaging
+
+The repository includes:
+
+- `build\build_exe.ps1` for the portable PyInstaller build.
+- `build\build_installer.ps1` for the Inno Setup installer.
+- `.github\workflows\windows-package.yml` for a manually dispatched or tag-triggered package build.
+
+The v1.0.0 installer artifact is expected to use this file name:
 
 ```text
-Gemini Vision
-    -> local locator fallback when Gemini is unavailable or uncertain
-    -> final Gemini Vision retry if local detection also misses
-    -> fail safely when no confident target is found
+Harvis-Setup-1.0.0-Windows-x64.exe
 ```
 
-The local locator uses accessibility information and local visual evidence rather than random low-confidence clicking.
+The executable and installer are not code-signed. Windows can therefore show an unknown-publisher or SmartScreen warning.
 
-Sensitive visual clicks now require a real subsequent user confirmation recorded by the local runtime. Confirmation
-authorizes only one retry for the same target and click type; an AI-generated argument cannot self-approve the action.
-
-### Setup
-
-Windows quick start:
+## Setup from source
 
 ```powershell
 python -m venv .venv
@@ -144,20 +150,19 @@ python -m harvis
 
 After setup, `START_HARVIS.vbs` can launch Harvis without leaving a terminal window visible.
 
-To use the mobile controller, enable it in Settings > Advanced, save settings, then open the displayed phone URL from a device on the same trusted local network and enter the displayed pairing code.
+## Platform status
 
-### Important notes
+Windows is the primary and most heavily tested target for v1.0.0. Linux support exists for several integrations, but some desktop-control features still depend on X11-compatible utilities and are not fully Wayland-ready.
 
-- A Gemini API key is required for Gemini Live and Gemini Vision.
-- Cloud features are subject to the limits of the configured Google API project.
-- Multi-step plans intentionally stop on screen-readiness failures, missing targets, uncertainty, or confirmation-required visual actions rather than guessing through unknown UI states.
-- Screen-stability detection is a visual heuristic; highly animated desktops may take longer to be considered settled or may stop a guarded plan safely.
-- Mobile remote control is LAN-only and currently uses HTTP rather than TLS. Do not expose its port to the public Internet or use it on an untrusted network.
-- Windows is currently the most heavily tested platform.
-- Linux support is present for several system integrations, but some desktop-control features still depend on X11-compatible tools and are not fully Wayland-ready.
-- The executable and installer are not code-signed, so Windows may show an unknown-publisher warning.
+## Important notes
+
+- Gemini Live and Gemini Vision require network access and a configured Gemini API key.
+- Cloud behavior is subject to the limits of the configured Google API project.
+- Mobile remote control is intended only for trusted private networks.
+- Screen-stability and visual-target checks are deliberately fail-safe and can stop workflows rather than guess.
+- The Windows artifacts are currently unsigned.
 - Harvis is licensed under GNU GPLv3; see `LICENSE`.
 
-### Before publishing
+## Before publishing
 
-Complete the checks in `RELEASE_CHECKLIST.md`, choose the final version/tag, and edit this file if the release should mention additional known limitations or platform requirements.
+Complete every applicable release gate in `RELEASE_CHECKLIST.md`, confirm the full test suite and Windows smoke tests, build the final installer, and then create the manual GitHub release with tag `v1.0.0`.
