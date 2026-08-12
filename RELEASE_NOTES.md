@@ -128,12 +128,13 @@ On Windows, Harvis stores the saved key in Windows Credential Manager. On Linux,
 The repository includes:
 
 - `build\build_exe.ps1` for the portable PyInstaller build.
-- `build\build_installer.ps1` for the Inno Setup installer.
-- `.github\workflows\windows-package.yml` for a manually dispatched or tag-triggered package build.
+- `build\build_installer.ps1` for the final portable ZIP and Inno Setup installer.
+- `.github\workflows\windows-package.yml` for a manually dispatched or tag-triggered package build that uploads both Windows artifacts.
 
-The v1.0.0 installer artifact is expected to use this file name:
+The v1.0.0 Windows artifacts are expected to use these file names:
 
 ```text
+Harvis-1.0.0-Windows-x64-portable.zip
 Harvis-Setup-1.0.0-Windows-x64.exe
 ```
 
@@ -165,4 +166,4 @@ Windows is the primary and most heavily tested target for v1.0.0. Linux support 
 
 ## Before publishing
 
-Complete every applicable release gate in `RELEASE_CHECKLIST.md`, confirm the full test suite and Windows smoke tests, build the final installer, and then create the manual GitHub release with tag `v1.0.0`.
+Complete every applicable release gate in `RELEASE_CHECKLIST.md`, confirm the full test suite and Windows smoke tests, build the final portable ZIP and installer, and then create the manual GitHub release with tag `v1.0.0`.
