@@ -22,6 +22,10 @@ jobs:
           python-version: "3.12"
           cache: pip
 
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --yes --no-progress
+
       - name: Build and test Windows packages
         shell: pwsh
         run: powershell -ExecutionPolicy Bypass -File .\build\build_installer.ps1 -Version "1.0.1"
