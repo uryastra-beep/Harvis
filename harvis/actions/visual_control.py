@@ -321,6 +321,98 @@ def vision_click(
     )
 
 
+def local_vision_click(
+    target: str,
+    *,
+    button: str = "left",
+) -> dict[str, Any]:
+    """Locate and click a target without making any Gemini request."""
+
+    target_text = str(target).strip()
+    if not target_text:
+        raise ValueError("local_vision_click requires a target description.")
+
+    normalized_button = str(button).strip().lower()
+    if normalized_button not in {"left", "right", "double_left"}:
+        raise ValueError("button must be left, right, or double_left.")
+
+    preferred_capture = capture_preferred_screen()
+    best_capture = preferred_capture
+    best_target = locate_local_target(preferred_capture, target_text)
+    attempts = 1
+
+    if not _is_confident_local_target(best_target):
+        full_capture = capture_full_screen()
+        if _capture_geometry(full_capture) != _capture_geometry(preferred_capture):
+            attempts += 1
+            full_target = locate_local_target(full_capture, target_text)
+            if _local_target_score(full_target) > _local_target_score(best_target):
+                best_capture = full_capture
+                best_target = full_target
+
+    if _is_confident_local_target(best_target):
+        return _complete_local_click(
+            target_text,
+            normalized_button,
+            False,
+            best_capture,
+            best_target,
+            attempts=attempts,
+        )
+
+    return {
+        "status": "low_confidence" if best_target.found else "not_found",
+        "target": target_text,
+        "found": best_target.found,
+        "confidence": round(best_target.confidence, 3),
+        "description": "Could not find it.",
+        "sensitive": best_target.sensitive,
+        "locator": "local",
+        "methods": list(best_target.methods),
+        "attempts": attempts,
+        "local_attempts": attempts,
+        "cloud_attempts": 0,
+        "local_fallback_used": False,
+        "cloud_fallback_used": False,
+    }
+
+
+def click_screen_coordinates(
+    x: int,
+    y: int,
+    *,
+    expected_origin: tuple[int, int],
+    expected_size: tuple[int, int],
+) -> dict[str, Any]:
+    """Click an inspected questionnaire point only if desktop geometry is unchanged."""
+
+    screen_x = int(x)
+    screen_y = int(y)
+    origin_x, origin_y = (int(value) for value in expected_origin)
+    width, height = (int(value) for value in expected_size)
+    if width <= 0 or height <= 0:
+        return {"status": "invalid_coordinates"}
+
+    capture = capture_full_screen()
+    expected_geometry = (origin_x, origin_y, width, height)
+    if _capture_geometry(capture) != expected_geometry:
+        return {
+            "status": "screen_geometry_changed",
+            "expected_geometry": list(expected_geometry),
+            "current_geometry": list(_capture_geometry(capture)),
+        }
+
+    if not (
+        origin_x <= screen_x < origin_x + width
+        and origin_y <= screen_y < origin_y + height
+    ):
+        return {"status": "invalid_coordinates", "x": screen_x, "y": screen_y}
+
+    _move_cursor(screen_x, screen_y, duration=0.20)
+    _click_mouse("left")
+    return {"status": "clicked", "x": screen_x, "y": screen_y}
+
+
 def _complete_local_click(
     target_text: str,
     button: str,
@@ -623,6 +715,8 @@ __all__ = [
     "VISUAL_TARGET_TIMEOUT_SECONDS",
     "capture_full_screen",
     "capture_preferred_screen",
+    "click_screen_coordinates",
+    "local_vision_click",
     "move_pointer",
     "vision_click",
     "wait_for_screen_stable",

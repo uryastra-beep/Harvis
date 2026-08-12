@@ -230,3 +230,73 @@ def test_vision_click_retries_gemini_after_local_failure(monkeypatch) -> None:
     assert "quota exceeded" not in result["cloud_error"]
     assert result["local_fallback_used"] is True
     assert result["cloud_fallback_used"] is True
+
+
+def test_questionnaire_local_click_never_calls_gemini(monkeypatch) -> None:
+    capture = _capture()
+    actions: list[tuple[str, object]] = []
+
+    monkeypatch.setattr(visual_control, "capture_preferred_screen", lambda: capture)
+    monkeypatch.setattr(visual_control, "capture_full_screen", lambda: capture)
+    monkeypatch.setattr(
+        visual_control,
+        "locate_local_target",
+        lambda capture_value, target: _local_match(),
+    )
+    monkeypatch.setattr(
+        visual_control,
+        "locate_visual_target",
+        lambda *_: (_ for _ in ()).throw(
+            AssertionError("The questionnaire fallback must not call Gemini.")
+        ),
+    )
+    monkeypatch.setattr(
+        visual_control,
+        "_move_cursor",
+        lambda x, y, duration: actions.append(("move", (x, y, duration))),
+    )
+    monkeypatch.setattr(
+        visual_control,
+        "_click_mouse",
+        lambda button: actions.append(("click", button)),
+    )
+
+    result = visual_control.local_vision_click("questionnaire answer field")
+
+    assert result["status"] == "clicked"
+    assert result["locator"] == "local"
+    assert result["cloud_attempts"] == 0
+    assert actions[-1] == ("click", "left")
+
+
+def test_inspected_coordinate_click_stops_if_desktop_geometry_changes(
+    monkeypatch,
+) -> None:
+    changed_capture = ScreenCapture(
+        image_bytes=b"unused",
+        origin_x=0,
+        origin_y=0,
+        width=1280,
+        height=720,
+    )
+    monkeypatch.setattr(
+        visual_control,
+        "capture_full_screen",
+        lambda: changed_capture,
+    )
+    monkeypatch.setattr(
+        visual_control,
+        "_click_mouse",
+        lambda *_: (_ for _ in ()).throw(
+            AssertionError("Geometry changes must stop before clicking.")
+        ),
+    )
+
+    result = visual_control.click_screen_coordinates(
+        640,
+        420,
+        expected_origin=(0, 0),
+        expected_size=(1920, 1080),
+    )
+
+    assert result["status"] == "screen_geometry_changed"

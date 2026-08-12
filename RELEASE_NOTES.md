@@ -51,7 +51,7 @@ Routines and plugins execute only through the existing guarded action planner. P
 
 Harvis can find standard user-folder items by exact name and open them with the operating system default application. Explicit requests can copy, move, or rename without overwriting. Trash and folder organization require a real subsequent confirmation, and deletion remains recoverable through the operating system Trash.
 
-Gemini Vision can briefly describe an exact-name local image. For visible questionnaires, Harvis fills only confident visible answers and never submits the form. When Gemini analysis is unavailable on Windows, a bounded temporary-ChatGPT fallback can copy visible question text, obtain structured answers, return to the form, and fill what it can locate. The user remains responsible for review and submission.
+Gemini Vision can briefly describe an exact-name local image. For visible questionnaires, Harvis uses one guarded inspection, fills exact visible answer points from bottom to top, and never submits the form. When Gemini analysis is unavailable on Windows, a bounded temporary-ChatGPT fallback can copy visible question text, obtain structured answers, return to the form, and use only offline field location. Educational password questions no longer trigger the credential-field block. If safe automatic filling cannot continue, Harvis stops instead of delegating typing to the user. The user remains responsible for review and submission.
 
 ### Wake word, tray, and packaging
 

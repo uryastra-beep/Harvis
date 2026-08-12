@@ -214,7 +214,7 @@ Harvis can analyze an exact-name local BMP, GIF, JPEG, PNG, or WebP image up to 
 
 When the user explicitly says `Complete it with the correct answers` or makes an equivalent request, Harvis can inspect the currently visible questionnaire, infer answers, and fill only visible fields above its confidence threshold. It handles visible text fields and multiple-choice options, stops when a target cannot be located confidently, and never clicks Submit, Finish, Send, Next, or another committing control. The user must review and submit the result.
 
-If Gemini questionnaire analysis is unavailable on Windows, Harvis attempts a bounded fallback: it copies visible page text, opens `https://chatgpt.com/?temporary-chat=true`, requests a strict answer format, waits for the response, returns to the previous window, and fills the fields it can locate. If it cannot retrieve structured answers safely, it leaves the temporary chat open for manual review rather than guessing.
+If Gemini questionnaire analysis is unavailable on Windows, Harvis attempts a bounded fallback: it copies visible page text, opens `https://chatgpt.com/?temporary-chat=true`, requests a strict answer format, waits for the response, returns to the previous window, and fills fields using only its offline locator. Educational questions about password safety do not count as credential fields. If it cannot retrieve answers or locate fields safely, it stops without guessing or asking the user to type them as a substitute.
 
 ## Multi-step task orchestration
 

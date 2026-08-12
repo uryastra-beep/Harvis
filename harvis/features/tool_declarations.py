@@ -166,7 +166,8 @@ def feature_tool_declarations() -> list[dict[str, Any]]:
                 "Use only when the user explicitly asks Harvis to complete the questionnaire. Harvis never clicks "
                 "Submit, Finish, Send, or another committing control; the user must review and submit. If Gemini "
                 "Vision is unavailable, Harvis opens a temporary ChatGPT chat and copies the visible questions for "
-                "answer assistance."
+                "answer assistance. If automatic completion stops, report the reason without asking the user to "
+                "type the answers manually and without switching to general typing tools."
             ),
             "parameters": {"type": "object", "properties": {}},
         },

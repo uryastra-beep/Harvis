@@ -28,7 +28,12 @@ from harvis.actions.keyboard_control import (
 )
 from harvis.actions.mouse_control import scroll_view
 from harvis.actions.system import SystemActionError
-from harvis.actions.visual_control import move_pointer, vision_click
+from harvis.actions.visual_control import (
+    click_screen_coordinates,
+    local_vision_click,
+    move_pointer,
+    vision_click,
+)
 from harvis.ai_watermark import should_watermark_ai_authored_text
 from harvis.config import HarvisSettings
 from harvis.core.command_parser import extract_command
@@ -158,7 +163,10 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             "text only after an explicit request involving copied content. Use analyze_image_file when the user asks "
             "about a named image file. complete_visible_questionnaire may fill visible confident answers, but it "
             "must never submit, finish, send, or otherwise commit the questionnaire. Always remind the user to "
-            "review the filled answers. Use save_routine only after an explicit request, and execute saved routines "
+            "review the filled answers. If automatic questionnaire completion stops or its browser fallback is "
+            "unavailable, report that it stopped and why. Never ask the user to type the answers as a substitute, "
+            "and never continue with general typing tools outside the guarded questionnaire workflow. Use "
+            "save_routine only after an explicit request, and execute saved routines "
             "and data-only plugins through the guarded planner. undo_last_action works only for a recorded safe "
             "inverse; never promise that every computer action is reversible."
         )
@@ -1198,6 +1206,30 @@ class HarvisAssistant:
             else:
                 self._notify_status(f"Could not confidently click: {target}")
             return result
+
+        if name == "click_questionnaire_point":
+            # Internal-only path. Coordinates come from the single guarded
+            # questionnaire inspection and are never exposed to Gemini Live.
+            origin = arguments.get("expected_origin", [])
+            size = arguments.get("expected_size", [])
+            if not isinstance(origin, list) or len(origin) != 2:
+                raise ValueError("click_questionnaire_point requires expected_origin.")
+            if not isinstance(size, list) or len(size) != 2:
+                raise ValueError("click_questionnaire_point requires expected_size.")
+            return click_screen_coordinates(
+                int(arguments.get("x", 0)),
+                int(arguments.get("y", 0)),
+                expected_origin=(int(origin[0]), int(origin[1])),
+                expected_size=(int(size[0]), int(size[1])),
+            )
+
+        if name == "questionnaire_local_click":
+            # The temporary-ChatGPT fallback must remain usable after Gemini
+            # reaches its quota, so this internal path never calls Gemini.
+            target = str(arguments.get("target", "")).strip()
+            if not target:
+                raise ValueError("questionnaire_local_click requires target.")
+            return local_vision_click(target)
 
         if name == "type_lines":
             lines = arguments.get("lines", [])
