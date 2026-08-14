@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QAbstractButton,
     QCheckBox,
     QComboBox,
+    QFrame,
     QFormLayout,
     QGraphicsBlurEffect,
     QGraphicsDropShadowEffect,
@@ -25,8 +26,10 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLayout,
     QMainWindow,
     QPushButton,
+    QScrollArea,
     QSlider,
     QStackedWidget,
     QVBoxLayout,
@@ -749,7 +752,8 @@ class SettingsWindow(QMainWindow):
 
         for section_name in self.SECTION_NAMES:
             self.sidebar.addItem(section_name)
-            self.pages.addWidget(page_builders[section_name]())
+            page = page_builders[section_name]()
+            self.pages.addWidget(self._make_scrollable_page(page))
 
         self.sidebar.addStretch()
         self.sidebar.currentRowChanged.connect(self.pages.setCurrentIndexAnimated)
@@ -793,6 +797,7 @@ class SettingsWindow(QMainWindow):
         layout = QVBoxLayout(page)
         layout.setContentsMargins(5, 4, 5, 5)
         layout.setSpacing(16)
+        layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
 
         title = QLabel(title_text)
         title.setObjectName("sectionTitle")
@@ -804,6 +809,23 @@ class SettingsWindow(QMainWindow):
         layout.addWidget(title)
         layout.addWidget(description_label)
         return page, layout
+
+    @staticmethod
+    def _make_scrollable_page(page: QWidget) -> QScrollArea:
+        """Keep dense settings pages readable instead of compressing their controls."""
+
+        scroll_area = QScrollArea()
+        scroll_area.setObjectName("settingsPageScroll")
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        scroll_area.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded
+        )
+        scroll_area.setWidget(page)
+        return scroll_area
 
     def _build_general_page(self) -> QWidget:
         page, layout = self._page_shell(

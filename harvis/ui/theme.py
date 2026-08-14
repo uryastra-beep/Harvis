@@ -93,9 +93,15 @@ QSpinBox {{
     background-color: {CONTROL_SURFACE};
     border: 1px solid {BORDER_SOFT};
     border-radius: 12px;
-    padding: 8px 10px;
+    min-height: 34px;
+    padding: 0 10px;
     selection-background-color: {SECONDARY};
     selection-color: {PRIMARY};
+}}
+
+QScrollArea#settingsPageScroll {{
+    background-color: transparent;
+    border: none;
 }}
 
 QComboBox:hover,
