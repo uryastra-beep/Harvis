@@ -4,10 +4,14 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Package version (for example 1.0.0)
+        description: Package version (for example 1.1.0)
         required: true
-        default: 1.0.0
+        default: 1.1.0
   push:
+    branches:
+      - main
+    paths:
+      - ".github/package-v1.1.0"
     tags:
       - "v*"
 
@@ -35,7 +39,12 @@ jobs:
         run: |
           $Version = "${{ inputs.version }}"
           if (-not $Version) {
-              $Version = "${{ github.ref_name }}".TrimStart("v")
+              if ("${{ github.ref_type }}" -eq "branch") {
+                  $Version = python -c "import harvis; print(harvis.__version__)"
+              }
+              else {
+                  $Version = "${{ github.ref_name }}".TrimStart("v")
+              }
           }
           if ($Version -notmatch '^\d+\.\d+\.\d+$') {
               throw "Version must use MAJOR.MINOR.PATCH."

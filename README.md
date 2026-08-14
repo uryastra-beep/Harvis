@@ -40,6 +40,14 @@ The project currently targets Windows most strongly while keeping the architectu
 - Local Windows wake-word mode that can avoid a continuous Gemini microphone connection.
 - Persistent system-tray controls, including mode switching, microphone control, and Undo.
 - Startup update checks, a portable Windows executable build, and an Inno Setup installer workflow.
+- Proactive local reminders, guarded scheduled routines, finished-download alerts, and low-battery alerts.
+- Deterministic offline fallback for basic commands when Gemini is unavailable.
+- Local semantic file search using names, folders, recent use, and bounded document content.
+- Verified visual memory that reuses non-sensitive UI locations only after repeated success and matching pixels.
+- Phone-side notification cards for reminders and useful status results.
+- Installable, removable data-only skill manifests with guarded action validation.
+- First-launch onboarding, live status, response captions, scalable UI, reduced motion, high contrast, and keyboard focus indicators.
+- Crash recovery detection, failure explanations, local self-checks, and redacted diagnostic bundles.
 
 ## Official color palette
 
@@ -101,6 +109,7 @@ The mobile page can:
 - Mute or unmute microphone forwarding while Harvis is in Speaking mode.
 - Select where Harvis voice audio is played.
 - Play Harvis voice directly through the paired phone.
+- Receive Harvis reminders and useful status notifications while the remote is connected.
 
 ### Voice output routing
 
@@ -205,6 +214,26 @@ Harvis can read up to 50,000 characters of text from the current clipboard only 
 Reusable routines store up to 24 already approved desktop steps and run through the same bounded task orchestrator as one-time plans. Harvis validates the complete routine before saving and again before execution.
 
 Plugins are deliberately data-only JSON plans from `%APPDATA%\Harvis\plugins`. Harvis never imports Python from that folder. Built-in starter definitions open Spotify, Discord, GitHub, Gmail, and Google Calendar; every plugin action is still validated by the guarded orchestrator.
+
+Additional plugin manifests can be installed from an exact-name local JSON file and removed by name. Harvis validates the complete action list before installation, refuses Python code, bounds file and action counts, and never silently replaces an installed plugin.
+
+## Proactive and offline behavior
+
+When proactive assistance is enabled, Harvis can create one-time, daily, or weekly reminders and schedule an existing guarded routine. A lightweight local monitor can also report when a browser download finishes and when battery charge reaches the configured threshold. These checks do not send filesystem or battery data to Gemini.
+
+Basic commands such as volume changes, media controls, application or URL opening, named links, routines, semantic file lookup, and Harvis self-shutdown have a deterministic local parser. Harvis normally lets Gemini handle a command first; if the Live request cannot be queued or the service fails before completing a recognized basic command, Harvis runs the validated local fallback instead.
+
+## Semantic file search and visual memory
+
+Semantic file search supports requests such as `Find that PDF about Greece I used last week`. It ranks bounded standard-user-folder results using file and folder names, type hints, modified/accessed time, prior Harvis opens, and locally extracted text from supported text, DOCX, and PDF files. The index remains local and is refreshed lazily to reduce startup and memory cost.
+
+Verified visual memory records a small local fingerprint around successful, non-sensitive clicks. A location becomes reusable only after two successful observations, and only when the display geometry and nearby pixels still match. Password, payment, permission, deletion, and other sensitive targets are never learned. A mismatch returns Harvis to the normal Gemini-plus-local locator stack.
+
+## Reliability and accessibility
+
+Harvis marks active runtime sessions so the next launch can explain that it recovered after an unclean shutdown. `Settings > Advanced` can run a local self-check and export a bounded diagnostic ZIP. The bundle redacts API keys, credentials, tokens, passwords, and the configured user name. Failed actions keep a short sanitized reason so Harvis can answer why the latest action failed.
+
+First launch now presents a guided welcome dialog. Accessibility settings include interface scaling from 80% to 180%, reduced motion, higher contrast, visible keyboard focus indicators, and optional response captions. Settings pages remain scrollable on smaller or scaled Windows displays.
 
 The local `activity.jsonl` file keeps at most 500 action records. Typed text, memory values, and secret-like arguments are omitted or redacted. Undo is intentionally narrow: it is available only when the latest completed action recorded a supported safe inverse, such as moving or renaming an item or opening/closing a browser tab.
 
@@ -384,6 +413,11 @@ Harvis currently stores persistent settings for:
 - Local Windows wake-word enabled state and active-session timeout.
 - System-tray enabled state.
 - Automatic GitHub release checks.
+- Proactive assistance, download notifications, and low-battery threshold.
+- Semantic file search and verified visual memory.
+- Phone remote notifications.
+- Interface scale, reduced motion, high contrast, and response captions.
+- First-launch onboarding completion.
 
 The mobile voice-output target is intentionally runtime state rather than a persistent desktop setting. The remote returns to `Computer only` when the server stops.
 
@@ -422,7 +456,7 @@ The executable is created at `dist\Harvis\Harvis.exe`. The build script stops on
 After installing Inno Setup 6, build the per-user Windows x64 installer with:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\build\build_installer.ps1 -Version 0.2.0
+powershell -ExecutionPolicy Bypass -File .\build\build_installer.ps1 -Version 1.1.0
 ```
 
 The installer is written to `dist\installer`. It includes optional desktop and startup shortcuts and does not require administrator privileges. The `Windows package` GitHub Actions workflow can also build and upload the installer as a workflow artifact from a semantic-version tag or a manual dispatch; it intentionally does not publish a release automatically.
@@ -509,7 +543,7 @@ Run the test suite with:
 python -m pytest
 ```
 
-The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, guarded long-workflow readiness, paired mobile remote control, mobile voice routing, authenticated remote audio retrieval, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, the AI watermark filter, memory, exact-name files, named links, routines, plugins, activity redaction, questionnaire safety, and guarded file operations.
+The repository includes tests for settings, Gemini Live lifecycle safeguards and session recovery configuration, microphone mute gating, multi-step task orchestration, guarded long-workflow readiness, paired mobile remote control, mobile voice routing, authenticated remote audio retrieval, phone notifications, proactive schedules, offline fallback, semantic search, verified visual memory, diagnostics, single-instance activation, desktop tools, typing behavior, visual fallback logic, Silent mode behavior, audio analysis, the AI watermark filter, memory, exact-name files, named links, routines, installable data-only plugins, activity redaction, questionnaire safety, and guarded file operations.
 
 GitHub Actions runs the complete test suite, dependency verification, and Python compilation checks on both Windows
 and Linux for every push to `main` and every pull request.
@@ -527,6 +561,9 @@ and Linux for every push to `main` and every pull request.
 - Windows is currently the most heavily tested platform.
 - The local wake-word listener currently requires Windows SAPI and an installed compatible speech recognizer.
 - Exact-name file search is deliberately limited to standard user folders and a bounded number of entries.
+- Semantic search is local and bounded; image OCR and semantic embeddings are not yet used, and scanned PDFs may have no searchable text.
+- Proactive reminders run only while Harvis is running; this version does not register separate operating-system scheduled tasks.
+- Phone notifications are delivered through the paired LAN remote and are not push notifications when the browser is disconnected.
 - Questionnaire assistance is limited to currently visible fields, can make incorrect inferences, and always requires user review and manual submission.
 - The ChatGPT questionnaire fallback currently requires Windows UI Automation and an already usable browser session.
 - The installer and executable are not code-signed, so Windows SmartScreen can still show an unknown-publisher warning.

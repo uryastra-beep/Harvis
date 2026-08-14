@@ -38,6 +38,17 @@ class HarvisSettings:
     system_tray_enabled: bool = True
     remote_control_enabled: bool = False
     remote_control_port: int = 8765
+    proactive_enabled: bool = True
+    download_notifications_enabled: bool = True
+    battery_alert_percent: int = 20
+    semantic_file_search_enabled: bool = True
+    visual_memory_enabled: bool = True
+    phone_notifications_enabled: bool = True
+    ui_scale_percent: int = 100
+    reduced_motion: bool = False
+    high_contrast: bool = False
+    captions_enabled: bool = False
+    first_run_completed: bool = False
 
     def normalized(self) -> HarvisSettings:
         normalized_name = " ".join(str(self.user_name).split()).strip()
@@ -86,6 +97,32 @@ class HarvisSettings:
             REMOTE_CONTROL_PORT_MIN,
             min(REMOTE_CONTROL_PORT_MAX, remote_port),
         )
+
+        for field_name, default in (
+            ("proactive_enabled", True),
+            ("download_notifications_enabled", True),
+            ("semantic_file_search_enabled", True),
+            ("visual_memory_enabled", True),
+            ("phone_notifications_enabled", True),
+            ("reduced_motion", False),
+            ("high_contrast", False),
+            ("captions_enabled", False),
+            ("first_run_completed", False),
+        ):
+            if not isinstance(getattr(self, field_name), bool):
+                setattr(self, field_name, default)
+
+        try:
+            battery_alert = int(self.battery_alert_percent)
+        except (TypeError, ValueError):
+            battery_alert = 20
+        self.battery_alert_percent = max(5, min(50, battery_alert))
+
+        try:
+            ui_scale = int(self.ui_scale_percent)
+        except (TypeError, ValueError):
+            ui_scale = 100
+        self.ui_scale_percent = max(80, min(180, ui_scale))
 
         return self
 

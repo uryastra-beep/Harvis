@@ -1,6 +1,6 @@
-# Harvis v1.0.0 Release Notes
+# Harvis v1.1.0 Release Notes
 
-Harvis v1.0.0 is the first public release of the Harvis desktop personal assistant. It combines Gemini Live conversation with guarded local computer control, visual interaction, local knowledge, reusable automation, and a paired mobile controller.
+Harvis v1.1.0 is the proactive intelligence, local fallback, accessibility, and reliability update. It keeps Harvis's guarded desktop-control foundation while making useful basic actions available when Gemini is unavailable and making the assistant easier to understand, extend, and recover.
 
 > Publication remains manual. Complete `RELEASE_CHECKLIST.md` before creating the GitHub release.
 
@@ -22,6 +22,37 @@ Harvis v1.0.0 is the first public release of the Harvis desktop personal assista
 - System-tray controls.
 - PyInstaller portable Windows build and Inno Setup installer workflow.
 - GNU GPLv3 licensing.
+- One-time, daily, and weekly reminders plus guarded scheduled routines.
+- Local finished-download and low-battery notifications.
+- Deterministic offline fallback for recognized basic commands.
+- Local semantic file search by description, type, content, recency, and prior use.
+- Fingerprint-verified visual memory for faster repeated non-sensitive UI actions.
+- Phone remote notification cards.
+- Installable and removable validated JSON skill manifests.
+- Guided first-launch onboarding and clearer runtime status.
+- UI scaling, reduced motion, high contrast, keyboard focus, and response captions.
+- Crash recovery detection, sanitized failure explanations, self-checks, and redacted diagnostic exports.
+- Scroll-safe Settings layout on smaller and scaled Windows displays.
+
+## Proactive assistance and offline fallback
+
+Harvis can schedule reminders or existing routines for an exact ISO date and time, with optional daily or weekly recurrence. Scheduled routines continue to use the normal guarded orchestrator. A local monitor can report completed browser downloads and a configurable low-battery threshold.
+
+Silent, mobile, and transcribed voice requests can keep a short-lived local fallback for recognized basic commands. Gemini remains the primary interpreter; if a request cannot be queued or Gemini fails before handling that command, Harvis can safely perform the deterministic local action instead.
+
+## Local intelligence and extensibility
+
+Semantic file search scans bounded standard user folders lazily and ranks files using names, folders, type, modified/accessed time, prior Harvis opens, and supported document text. The cache never leaves the PC.
+
+Visual memory stores only non-sensitive successful targets and requires two observations plus matching display geometry and nearby pixels before reuse. Sensitive controls are never learned.
+
+Data-only plugins can now be installed from an exact-name JSON manifest and removed by name. Harvis validates the complete bounded action plan, refuses executable plugin code, and does not silently overwrite an existing plugin.
+
+## UX, accessibility, and reliability
+
+New users receive a first-launch setup dialog. Settings add proactive, local-intelligence, phone-notification, scale, reduced-motion, high-contrast, and caption controls. Dense pages remain scrollable, and the header exposes the live Harvis status.
+
+Harvis detects an unclean previous runtime, stores a redacted crash report, can explain the latest sanitized action failure, runs a local health check, and exports a privacy-bounded diagnostic ZIP for troubleshooting.
 
 ## Mobile remote control
 
@@ -131,11 +162,11 @@ The repository includes:
 - `build\build_installer.ps1` for the final portable ZIP and Inno Setup installer.
 - `.github\workflows\windows-package.yml` for a manually dispatched or tag-triggered package build that uploads both Windows artifacts.
 
-The v1.0.0 Windows artifacts are expected to use these file names:
+The v1.1.0 Windows artifacts are expected to use these file names:
 
 ```text
-Harvis-1.0.0-Windows-x64-portable.zip
-Harvis-Setup-1.0.0-Windows-x64.exe
+Harvis-1.1.0-Windows-x64-portable.zip
+Harvis-Setup-1.1.0-Windows-x64.exe
 ```
 
 The executable and installer are not code-signed. Windows can therefore show an unknown-publisher or SmartScreen warning.
@@ -153,7 +184,7 @@ After setup, `START_HARVIS.vbs` can launch Harvis without leaving a terminal win
 
 ## Platform status
 
-Windows is the primary and most heavily tested target for v1.0.0. Linux support exists for several integrations, but some desktop-control features still depend on X11-compatible utilities and are not fully Wayland-ready.
+Windows is the primary and most heavily tested target for v1.1.0. Linux support exists for several integrations, but some desktop-control features still depend on X11-compatible utilities and are not fully Wayland-ready.
 
 ## Important notes
 
@@ -166,4 +197,4 @@ Windows is the primary and most heavily tested target for v1.0.0. Linux support 
 
 ## Before publishing
 
-Complete every applicable release gate in `RELEASE_CHECKLIST.md`, confirm the full test suite and Windows smoke tests, build the final portable ZIP and installer, and then create the manual GitHub release with tag `v1.0.0`.
+Complete every applicable release gate in `RELEASE_CHECKLIST.md`, confirm the full test suite and Windows smoke tests, build the final portable ZIP and installer, and then create the manual GitHub release with tag `v1.1.0`.

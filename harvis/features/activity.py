@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import threading
 from collections import deque
 from datetime import datetime, timezone
@@ -34,6 +35,9 @@ class ActivityHistory:
             "arguments": self._redact(arguments),
             "status": str(result.get("status", "completed")),
         }
+        reason = result.get("error", result.get("message", result.get("reason", "")))
+        if reason:
+            entry["reason"] = self._redact_text(str(reason))[:1000]
         with self._lock:
             entries = self._read_entries()
             entries.append(entry)
@@ -64,6 +68,27 @@ class ActivityHistory:
         with self._lock:
             return self._undo_stack.pop() if self._undo_stack else None
 
+    def explain_last_failure(self) -> dict[str, Any]:
+        with self._lock:
+            entries = self._read_entries()
+        for entry in reversed(entries):
+            status = str(entry.get("status", "completed")).casefold()
+            if status not in {"completed", "clicked", "saved", "scheduled"}:
+                return {
+                    "status": "completed",
+                    "failure": entry,
+                    "explanation": str(
+                        entry.get(
+                            "reason",
+                            "The action stopped safely but did not provide a detailed reason.",
+                        )
+                    ),
+                }
+        return {
+            "status": "not_found",
+            "explanation": "Harvis has no recorded failed action to explain.",
+        }
+
     def _read_entries(self) -> list[dict[str, Any]]:
         try:
             lines = self.path.read_text(encoding="utf-8").splitlines()
@@ -90,3 +115,11 @@ class ActivityHistory:
             else:
                 redacted[key] = value
         return redacted
+
+    @staticmethod
+    def _redact_text(value: str) -> str:
+        return re.sub(
+            r"(?i)(api[_ -]?key|password|secret|token)(\s*[:=]\s*)([^\s,;]+)",
+            r"\1\2<redacted>",
+            str(value),
+        )

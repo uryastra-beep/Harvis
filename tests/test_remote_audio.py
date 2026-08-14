@@ -119,6 +119,23 @@ def test_remote_audio_output_rejects_unknown_target() -> None:
         assistant.set_remote_audio_output("television")
 
 
+def test_phone_notifications_are_exposed_to_remote_status() -> None:
+    assistant = RemoteCapableHarvisAssistant(
+        HarvisSettings(phone_notifications_enabled=True)
+    )
+
+    result = assistant._send_phone_notification(
+        "Download finished",
+        "report.pdf",
+        "success",
+    )
+
+    notifications = assistant.remote_status()["notifications"]
+    assert result["status"] == "queued"
+    assert notifications[-1]["title"] == "Download finished"
+    assert notifications[-1]["severity"] == "success"
+
+
 def test_paired_remote_can_select_phone_audio_and_fetch_pcm() -> None:
     fixture = _RemoteAudioFixture()
     server = RemoteControlServer(

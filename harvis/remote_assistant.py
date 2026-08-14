@@ -12,6 +12,7 @@ from harvis.assistant import HarvisAssistant, HarvisGeminiLiveVoice
 
 REMOTE_AUDIO_BUFFER_MAX_BYTES = 24000 * 2 * 4
 REMOTE_STATUS_MAX_CHARACTERS = 8192
+REMOTE_NOTIFICATIONS_MAX = 25
 SUPPORTED_REMOTE_AUDIO_OUTPUTS = {"pc", "phone", "both"}
 
 
@@ -80,6 +81,10 @@ class RemoteCapableHarvisAssistant(HarvisAssistant):
         self._remote_last_response = ""
         self._remote_audio_chunks: deque[bytes] = deque()
         self._remote_audio_buffer_bytes = 0
+        self._remote_notifications: deque[dict[str, Any]] = deque(
+            maxlen=REMOTE_NOTIFICATIONS_MAX
+        )
+        self._remote_notification_id = 0
         super().__init__(*args, **kwargs)
 
         settings = self._settings
@@ -106,10 +111,17 @@ class RemoteCapableHarvisAssistant(HarvisAssistant):
         if not command:
             raise ValueError("Remote command cannot be empty.")
 
-        self.ensure_active_session()
         self._record_visual_confirmation_response(command, complete_input=True)
         self._set_watermark_context(command)
-        if not self._voice.send_text(command):
+        self._set_offline_fallback(command)
+        try:
+            self.ensure_active_session()
+            queued = self._voice.send_text(command)
+        except Exception:
+            queued = False
+        if not queued:
+            if self._execute_pending_offline_fallback():
+                return
             raise SystemActionError("Harvis could not queue the remote command.")
         self._notify_status("Remote command sent")
 
@@ -145,6 +157,7 @@ class RemoteCapableHarvisAssistant(HarvisAssistant):
         with self._remote_state_lock:
             status = self._remote_last_status
             response = self._remote_last_response
+            notifications = list(self._remote_notifications)
 
         return {
             "status": status,
@@ -153,6 +166,9 @@ class RemoteCapableHarvisAssistant(HarvisAssistant):
             "microphone_muted": self.microphone_muted,
             "assistant_running": self._voice.is_running,
             "audio_output": self._voice.audio_output_target,
+            "notifications": notifications
+            if self._settings.phone_notifications_enabled
+            else [],
         }
 
     def _capture_remote_audio(self, audio_data: bytes) -> None:
@@ -188,9 +204,47 @@ class RemoteCapableHarvisAssistant(HarvisAssistant):
             self._remote_last_status = str(status)[-REMOTE_STATUS_MAX_CHARACTERS:]
         super()._notify_status(status)
 
+    def _notify_user(self, title: str, message: str, severity: str = "info") -> None:
+        if self._settings.phone_notifications_enabled:
+            self._queue_remote_notification(title, message, severity)
+        super()._notify_user(title, message, severity)
+
+    def _send_phone_notification(
+        self,
+        title: str,
+        message: str,
+        severity: str = "info",
+    ) -> dict[str, Any]:
+        notification = self._queue_remote_notification(title, message, severity)
+        return {"status": "queued", "notification": notification}
+
+    def _queue_remote_notification(
+        self,
+        title: str,
+        message: str,
+        severity: str,
+    ) -> dict[str, Any]:
+        clean_title = " ".join(str(title).split()).strip()[:80] or "Harvis"
+        clean_message = " ".join(str(message).split()).strip()[:500]
+        normalized_severity = str(severity).strip().casefold()
+        if normalized_severity not in {"info", "success", "warning", "error"}:
+            normalized_severity = "info"
+        with self._remote_state_lock:
+            self._remote_notification_id += 1
+            notification = {
+                "id": self._remote_notification_id,
+                "title": clean_title,
+                "message": clean_message,
+                "severity": normalized_severity,
+                "at": time.time(),
+            }
+            self._remote_notifications.append(notification)
+        return notification
+
 
 __all__ = [
     "REMOTE_AUDIO_BUFFER_MAX_BYTES",
+    "REMOTE_NOTIFICATIONS_MAX",
     "REMOTE_STATUS_MAX_CHARACTERS",
     "SUPPORTED_REMOTE_AUDIO_OUTPUTS",
     "RemoteAudioHarvisGeminiLiveVoice",

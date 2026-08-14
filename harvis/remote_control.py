@@ -41,7 +41,7 @@ _MOBILE_HTML = r"""<!doctype html>
     .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.status{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:8px 12px;background:rgba(133,177,255,.12);color:#dfe9ff;font-size:13px}.dot{width:8px;height:8px;border-radius:50%;background:var(--tertiary);box-shadow:0 0 12px rgba(83,238,252,.8)}
     label{display:block;color:var(--muted);font-size:13px;margin:0 0 8px} input,textarea,select{width:100%;border:1px solid rgba(255,255,255,.14);background:rgba(0,7,43,.55);color:var(--text);border-radius:16px;padding:14px 15px;font:inherit;outline:none} input:focus,textarea:focus,select:focus{border-color:rgba(83,238,252,.7);box-shadow:0 0 0 3px rgba(83,238,252,.1)} textarea{min-height:108px;resize:vertical} select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--secondary) 50%),linear-gradient(135deg,var(--secondary) 50%,transparent 50%);background-position:calc(100% - 20px) calc(50% - 2px),calc(100% - 14px) calc(50% - 2px);background-size:6px 6px,6px 6px;background-repeat:no-repeat}
     button{border:0;border-radius:16px;padding:13px 16px;font:600 15px inherit;cursor:pointer}.primary{background:linear-gradient(135deg,var(--secondary),var(--tertiary));color:#00123a;box-shadow:0 8px 28px rgba(83,238,252,.2)}.secondary{background:rgba(255,255,255,.09);color:var(--text);border:1px solid rgba(255,255,255,.12)} button:disabled{opacity:.5;cursor:default}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:12px}.full{grid-column:1/-1}
-    .response{white-space:pre-wrap;word-break:break-word;min-height:70px;color:#eaf0ff}.meta{font-size:12px;color:var(--muted);margin-top:12px}.hidden{display:none!important}.error{color:#ffb7c4;margin-top:10px;font-size:13px}
+    .response{white-space:pre-wrap;word-break:break-word;min-height:70px;color:#eaf0ff}.meta{font-size:12px;color:var(--muted);margin-top:12px}.hidden{display:none!important}.error{color:#ffb7c4;margin-top:10px;font-size:13px}.notice{border-left:4px solid var(--tertiary);padding:11px 12px;margin-top:10px;background:rgba(133,177,255,.08);border-radius:12px}.notice.warning{border-left-color:#ffd27d}.notice.error{border-left-color:#ff91a6}.notice.success{border-left-color:#78f0be}.notice-title{font-weight:700}.notice-message{color:var(--muted);margin-top:3px;font-size:13px}
   </style>
 </head>
 <body>
@@ -92,6 +92,11 @@ _MOBILE_HTML = r"""<!doctype html>
         <label>Latest Harvis response</label>
         <div id="responseText" class="response">No response yet.</div>
       </div>
+
+      <div class="card">
+        <label>Harvis notifications</label>
+        <div id="notifications"><div class="meta">No notifications yet.</div></div>
+      </div>
     </section>
   </main>
 
@@ -107,6 +112,7 @@ _MOBILE_HTML = r"""<!doctype html>
     const statusText = document.getElementById("statusText");
     const modeText = document.getElementById("modeText");
     const responseText = document.getElementById("responseText");
+    const notifications = document.getElementById("notifications");
     const muteButton = document.getElementById("muteButton");
     const audioOutput = document.getElementById("audioOutput");
     const audioHint = document.getElementById("audioHint");
@@ -115,6 +121,7 @@ _MOBILE_HTML = r"""<!doctype html>
     let audioContext = null;
     let nextAudioTime = 0;
     let audioPollBusy = false;
+    let lastNotificationId = 0;
     const activeAudioSources = new Set();
 
     function token(){ return localStorage.getItem(TOKEN_KEY) || ""; }
@@ -201,11 +208,25 @@ _MOBILE_HTML = r"""<!doctype html>
         statusText.textContent = data.status || "Harvis";
         modeText.textContent = data.mode || "Unknown mode";
         responseText.textContent = data.response || "No response yet.";
+        renderNotifications(Array.isArray(data.notifications) ? data.notifications : []);
         muteButton.disabled = data.mode !== "Speaking";
         muteButton.textContent = data.microphone_muted ? "Unmute microphone" : "Mute microphone";
         audioTarget = ["pc","phone","both"].includes(data.audio_output) ? data.audio_output : "pc";
         updateAudioUi();
       }catch(error){ if(token()) commandError.textContent = error.message; }
+    }
+    function renderNotifications(items){
+      if(!items.length){ notifications.innerHTML = '<div class="meta">No notifications yet.</div>'; return; }
+      notifications.replaceChildren(...items.slice().reverse().map(item => {
+        const card = document.createElement("div");
+        card.className = `notice ${item.severity || "info"}`;
+        const title = document.createElement("div"); title.className = "notice-title"; title.textContent = item.title || "Harvis";
+        const message = document.createElement("div"); message.className = "notice-message"; message.textContent = item.message || "";
+        card.append(title, message); return card;
+      }));
+      const newest = Math.max(...items.map(item => Number(item.id) || 0));
+      if(lastNotificationId && newest > lastNotificationId && navigator.vibrate) navigator.vibrate([90,60,90]);
+      lastNotificationId = Math.max(lastNotificationId, newest);
     }
     document.getElementById("pairButton").addEventListener("click", async () => {
       pairError.textContent = "";

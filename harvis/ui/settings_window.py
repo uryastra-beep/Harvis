@@ -38,10 +38,10 @@ from PySide6.QtWidgets import (
 
 from harvis.config import HarvisSettings, SettingsStore
 from harvis.ui.theme import (
-    APP_STYLESHEET,
     PRIMARY,
     SECONDARY,
     TEXT_PRIMARY,
+    build_app_stylesheet,
 )
 
 
@@ -123,9 +123,22 @@ class AnimatedStackedWidget(QStackedWidget):
         self._route: list[int] = []
         self._active_step_target: int | None = None
         self._pending_target: int | None = None
+        self._reduced_motion = False
+
+    def set_reduced_motion(self, reduced: bool) -> None:
+        self._reduced_motion = bool(reduced)
 
     def setCurrentIndexAnimated(self, index: int) -> None:
         if index < 0 or index >= self.count():
+            return
+
+        if self._reduced_motion:
+            if self._transition_group is not None:
+                self._transition_group.stop()
+                self._transition_group = None
+            self._route = []
+            self._pending_target = None
+            super().setCurrentIndex(index)
             return
 
         if self._transition_group is not None:
@@ -703,13 +716,22 @@ class SettingsWindow(QMainWindow):
         self.setWindowTitle("Harvis Settings")
         self.resize(1000, 670)
         self.setMinimumSize(840, 560)
-        self.setStyleSheet(APP_STYLESHEET)
+        self.setStyleSheet(
+            build_app_stylesheet(
+                self._settings.ui_scale_percent,
+                high_contrast=self._settings.high_contrast,
+            )
+        )
         self.setWindowOpacity(0.0)
 
         self._build_ui()
+        self.pages.set_reduced_motion(self._settings.reduced_motion)
         self._load_settings_into_controls()
 
-        QTimer.singleShot(0, self._start_intro_animation)
+        if self._settings.reduced_motion:
+            self.setWindowOpacity(1.0)
+        else:
+            QTimer.singleShot(0, self._start_intro_animation)
 
     def _build_ui(self) -> None:
         root = LiquidBackground()
@@ -729,8 +751,13 @@ class SettingsWindow(QMainWindow):
         subtitle = QLabel("Personal assistant settings")
         subtitle.setObjectName("mutedLabel")
 
+        self.runtime_status = QLabel("Starting Harvis…")
+        self.runtime_status.setObjectName("mutedLabel")
+        self.runtime_status.setAccessibleName("Harvis runtime status")
+
         header_layout.addWidget(title)
         header_layout.addWidget(subtitle)
+        header_layout.addWidget(self.runtime_status)
         root_layout.addWidget(header)
 
         content_layout = QHBoxLayout()
@@ -768,11 +795,25 @@ class SettingsWindow(QMainWindow):
         footer.addStretch(1)
 
         self.save_button = LiquidActionButton("Save changes")
+        self.save_button.setAccessibleName("Save Harvis settings")
         self.save_button.clicked.connect(self._save_settings)
         footer.addWidget(self.save_button)
 
         root_layout.addLayout(footer)
         self.setCentralWidget(root)
+
+    def set_runtime_status(self, status: str) -> None:
+        if hasattr(self, "runtime_status"):
+            self.runtime_status.setText(str(status))
+
+    def apply_accessibility_settings(self) -> None:
+        self.setStyleSheet(
+            build_app_stylesheet(
+                self._settings.ui_scale_percent,
+                high_contrast=self._settings.high_contrast,
+            )
+        )
+        self.pages.set_reduced_motion(self._settings.reduced_motion)
 
     def _start_intro_animation(self) -> None:
         animation = QPropertyAnimation(self, b"windowOpacity", self)

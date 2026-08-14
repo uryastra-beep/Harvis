@@ -199,3 +199,57 @@ QToolTip {{
     padding: 6px 9px;
 }}
 """
+
+
+def build_app_stylesheet(
+    scale_percent: int = 100,
+    *,
+    high_contrast: bool = False,
+) -> str:
+    """Return the application stylesheet with accessibility overrides."""
+
+    scale = max(80, min(180, int(scale_percent)))
+    point_size = max(8.0, min(18.0, 10.0 * scale / 100.0))
+    stylesheet = APP_STYLESHEET + f"""
+QWidget {{
+    font-size: {point_size:.1f}pt;
+}}
+
+QPushButton:focus,
+QCheckBox:focus,
+QComboBox:focus,
+QLineEdit:focus,
+QSpinBox:focus,
+QSlider:focus {{
+    outline: none;
+    border: 2px solid {TERTIARY};
+}}
+"""
+    if high_contrast:
+        stylesheet += f"""
+QWidget {{
+    color: #FFFFFF;
+}}
+QGroupBox,
+QWidget#animatedSidebar,
+QComboBox,
+QLineEdit,
+QSpinBox {{
+    border-color: #FFFFFF;
+}}
+QLabel#mutedLabel {{
+    color: #DDE7FF;
+}}
+QCheckBox::indicator {{
+    border: 2px solid #FFFFFF;
+}}
+QPushButton:focus,
+QCheckBox:focus,
+QComboBox:focus,
+QLineEdit:focus,
+QSpinBox:focus,
+QSlider:focus {{
+    border: 3px solid {TERTIARY};
+}}
+"""
+    return stylesheet

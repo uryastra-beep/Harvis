@@ -26,6 +26,17 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         system_tray_enabled=False,
         remote_control_enabled=True,
         remote_control_port=9123,
+        proactive_enabled=False,
+        download_notifications_enabled=False,
+        battery_alert_percent=15,
+        semantic_file_search_enabled=False,
+        visual_memory_enabled=False,
+        phone_notifications_enabled=False,
+        ui_scale_percent=130,
+        reduced_motion=True,
+        high_contrast=True,
+        captions_enabled=True,
+        first_run_completed=True,
     )
 
     store.save(expected)
@@ -49,6 +60,17 @@ def test_settings_are_normalized(tmp_path: Path) -> None:
         system_tray_enabled="invalid",  # type: ignore[arg-type]
         remote_control_enabled="invalid",  # type: ignore[arg-type]
         remote_control_port=90000,
+        proactive_enabled="invalid",  # type: ignore[arg-type]
+        download_notifications_enabled="invalid",  # type: ignore[arg-type]
+        battery_alert_percent=99,
+        semantic_file_search_enabled="invalid",  # type: ignore[arg-type]
+        visual_memory_enabled="invalid",  # type: ignore[arg-type]
+        phone_notifications_enabled="invalid",  # type: ignore[arg-type]
+        ui_scale_percent=999,
+        reduced_motion="invalid",  # type: ignore[arg-type]
+        high_contrast="invalid",  # type: ignore[arg-type]
+        captions_enabled="invalid",  # type: ignore[arg-type]
+        first_run_completed="invalid",  # type: ignore[arg-type]
     )
 
     store.save(settings)
@@ -66,6 +88,17 @@ def test_settings_are_normalized(tmp_path: Path) -> None:
     assert loaded.system_tray_enabled is True
     assert loaded.remote_control_enabled is False
     assert loaded.remote_control_port == 65535
+    assert loaded.proactive_enabled is True
+    assert loaded.download_notifications_enabled is True
+    assert loaded.battery_alert_percent == 50
+    assert loaded.semantic_file_search_enabled is True
+    assert loaded.visual_memory_enabled is True
+    assert loaded.phone_notifications_enabled is True
+    assert loaded.ui_scale_percent == 180
+    assert loaded.reduced_motion is False
+    assert loaded.high_contrast is False
+    assert loaded.captions_enabled is False
+    assert loaded.first_run_completed is False
 
 
 def test_blank_user_name_falls_back_to_user(tmp_path: Path) -> None:

@@ -39,3 +39,32 @@ def test_plugins_are_json_data_only(tmp_path) -> None:
 
     assert store.list()["count"] == 1
     assert store.get("study")["steps"][0]["action"] == "open_url"
+
+
+def test_plugin_install_and_remove_validate_data_only_manifest(tmp_path) -> None:
+    source = tmp_path / "downloaded-plugin.json"
+    source.write_text(
+        json.dumps(
+            {
+                "name": "Focus Tools",
+                "version": "1.2.0",
+                "author": "Test",
+                "steps": [{"action": "open_url", "url": "https://example.com"}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    directory = tmp_path / "installed"
+    store = DeclarativePluginStore(directory)
+    validated = []
+
+    installed = store.install(
+        source,
+        validate_steps=lambda steps: validated.append(steps),
+    )
+
+    assert installed["status"] == "installed"
+    assert validated[0][0]["action"] == "open_url"
+    assert store.get("focus tools")["version"] == "1.2.0"
+    assert store.remove("Focus Tools")["status"] == "removed"
+    assert store.get("Focus Tools") is None

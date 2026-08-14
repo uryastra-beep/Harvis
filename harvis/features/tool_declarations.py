@@ -61,6 +61,21 @@ def feature_tool_declarations() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "semantic_search_files",
+            "description": (
+                "Search local files by meaning, partial names, document content, file type, and recency. Use this "
+                "for requests such as finding a PDF about Greece used last week when the exact filename is unknown."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "maxLength": 500},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 12},
+                },
+                "required": ["query"],
+            },
+        },
+        {
             "name": "copy_exact_file_or_folder",
             "description": (
                 "Copy one local item identified by its exact name into an existing destination folder identified "
@@ -210,6 +225,57 @@ def feature_tool_declarations() -> list[dict[str, Any]]:
             },
         },
         {
+            "name": "schedule_reminder",
+            "description": (
+                "Schedule a local Harvis reminder. Convert the user's requested local date and time to an explicit "
+                "ISO-8601 timestamp with timezone before calling."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "message": {"type": "string", "maxLength": 500},
+                    "run_at": {"type": "string", "maxLength": 64},
+                    "recurrence": {
+                        "type": "string",
+                        "enum": ["once", "daily", "weekly"],
+                    },
+                },
+                "required": ["message", "run_at"],
+            },
+        },
+        {
+            "name": "schedule_routine",
+            "description": (
+                "Schedule an existing guarded Harvis routine for a specific ISO-8601 time, optionally daily or weekly."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "maxLength": 80},
+                    "run_at": {"type": "string", "maxLength": 64},
+                    "recurrence": {
+                        "type": "string",
+                        "enum": ["once", "daily", "weekly"],
+                    },
+                },
+                "required": ["name", "run_at"],
+            },
+        },
+        {
+            "name": "list_scheduled_items",
+            "description": "List local reminders and scheduled routines.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "cancel_scheduled_item",
+            "description": "Cancel one reminder or routine schedule by its displayed ID.",
+            "parameters": {
+                "type": "object",
+                "properties": {"id": {"type": "string", "maxLength": 32}},
+                "required": ["id"],
+            },
+        },
+        {
             "name": "recent_activity",
             "description": "Show a bounded local history of Harvis actions without exposing typed content.",
             "parameters": {
@@ -226,6 +292,34 @@ def feature_tool_declarations() -> list[dict[str, Any]]:
             "parameters": {"type": "object", "properties": {}},
         },
         {
+            "name": "explain_last_failure",
+            "description": "Explain why the most recent recorded Harvis action failed or stopped.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "run_self_check",
+            "description": "Run Harvis local health and configuration diagnostics.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "export_diagnostics",
+            "description": (
+                "Create a privacy-bounded diagnostic ZIP with redacted settings and log tails when the user asks "
+                "to export diagnostics or prepare a bug report."
+            ),
+            "parameters": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "visual_memory_stats",
+            "description": "Show how many verified on-screen target locations Harvis has learned locally.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "clear_visual_memory",
+            "description": "Clear learned UI locations only when the user explicitly asks.",
+            "parameters": {"type": "object", "properties": {}},
+        },
+        {
             "name": "list_plugins",
             "description": "List safe data-only Harvis plugins installed in the local plugins directory.",
             "parameters": {"type": "object", "properties": {}},
@@ -237,6 +331,41 @@ def feature_tool_declarations() -> list[dict[str, Any]]:
                 "type": "object",
                 "properties": {"name": {"type": "string", "maxLength": 80}},
                 "required": ["name"],
+            },
+        },
+        {
+            "name": "install_plugin_file",
+            "description": (
+                "Install a safe data-only Harvis plugin from an exact local JSON filename after the user explicitly "
+                "asks to install it. The action plan is validated before installation."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"name": {"type": "string", "maxLength": 260}},
+                "required": ["name"],
+            },
+        },
+        {
+            "name": "remove_plugin",
+            "description": "Remove one installed data-only plugin when the user explicitly asks.",
+            "parameters": {
+                "type": "object",
+                "properties": {"name": {"type": "string", "maxLength": 80}},
+                "required": ["name"],
+            },
+        },
+        {
+            "name": "send_phone_notification",
+            "description": (
+                "Send a short useful status or result to the paired phone remote when the user asks."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "maxLength": 80},
+                    "message": {"type": "string", "maxLength": 500},
+                },
+                "required": ["title", "message"],
             },
         },
     ]

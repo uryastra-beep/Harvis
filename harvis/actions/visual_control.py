@@ -28,10 +28,18 @@ from harvis.actions.vision_locator import (
     VisionTarget,
     locate_visual_target,
 )
+from harvis.features.visual_memory import VisualTargetMemory
 
 VISION_SCREENSHOT_MAX_DIMENSION = 3200
 SCREEN_STABILITY_TIMEOUT_SECONDS = 6.0
 VISUAL_TARGET_TIMEOUT_SECONDS = 10.0
+_VISUAL_MEMORY = VisualTargetMemory()
+_VISUAL_MEMORY_ENABLED = True
+
+
+def set_visual_memory_enabled(enabled: bool) -> None:
+    global _VISUAL_MEMORY_ENABLED
+    _VISUAL_MEMORY_ENABLED = bool(enabled)
 
 
 def capture_full_screen() -> ScreenCapture:
@@ -223,6 +231,31 @@ def vision_click(
     preferred_capture = capture_preferred_screen()
     full_capture: ScreenCapture | None = None
 
+    if _VISUAL_MEMORY_ENABLED:
+        remembered = _VISUAL_MEMORY.recall(
+            target_text,
+            normalized_button,
+            preferred_capture,
+        )
+        if remembered is not None:
+            _move_cursor(remembered["x"], remembered["y"], duration=0.12)
+            _click_mouse(normalized_button)
+            return {
+                "status": "clicked",
+                "target": target_text,
+                "found": True,
+                "confidence": remembered["similarity"],
+                "description": "Verified remembered UI location.",
+                "sensitive": False,
+                "locator": "visual_memory",
+                "x": remembered["x"],
+                "y": remembered["y"],
+                "attempts": 0,
+                "local_attempts": 0,
+                "cloud_attempts": 0,
+                "memory_successes": remembered["successes"],
+            }
+
     cloud_attempts = 0
     cloud_errors: list[Exception] = []
     best_cloud_capture = preferred_capture
@@ -337,6 +370,30 @@ def local_vision_click(
         raise ValueError("button must be left, right, or double_left.")
 
     preferred_capture = capture_preferred_screen()
+    if _VISUAL_MEMORY_ENABLED:
+        remembered = _VISUAL_MEMORY.recall(
+            target_text,
+            normalized_button,
+            preferred_capture,
+        )
+        if remembered is not None:
+            _move_cursor(remembered["x"], remembered["y"], duration=0.12)
+            _click_mouse(normalized_button)
+            return {
+                "status": "clicked",
+                "target": target_text,
+                "found": True,
+                "confidence": remembered["similarity"],
+                "description": "Verified remembered UI location.",
+                "sensitive": False,
+                "locator": "visual_memory",
+                "x": remembered["x"],
+                "y": remembered["y"],
+                "attempts": 0,
+                "local_attempts": 0,
+                "cloud_attempts": 0,
+                "memory_successes": remembered["successes"],
+            }
     best_capture = preferred_capture
     best_target = locate_local_target(preferred_capture, target_text)
     attempts = 1
@@ -454,6 +511,15 @@ def _complete_local_click(
     _move_cursor(target.x, target.y, duration=0.20)
     _click_mouse(button)
     result["status"] = "clicked"
+    if _VISUAL_MEMORY_ENABLED:
+        _VISUAL_MEMORY.remember(
+            target_text,
+            button,
+            capture,
+            target.x,
+            target.y,
+            sensitive=target.sensitive,
+        )
     return result
 
 
@@ -502,6 +568,15 @@ def _complete_cloud_click(
     _move_cursor(screen_x, screen_y, duration=0.20)
     _click_mouse(button)
     result["status"] = "clicked"
+    if _VISUAL_MEMORY_ENABLED:
+        _VISUAL_MEMORY.remember(
+            target_text,
+            button,
+            capture,
+            screen_x,
+            screen_y,
+            sensitive=target.sensitive,
+        )
     return result
 
 
@@ -718,6 +793,7 @@ __all__ = [
     "click_screen_coordinates",
     "local_vision_click",
     "move_pointer",
+    "set_visual_memory_enabled",
     "vision_click",
     "wait_for_screen_stable",
     "wait_for_visual_target",

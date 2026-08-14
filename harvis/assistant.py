@@ -7,6 +7,7 @@ import time
 import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from urllib.parse import urlparse
 
@@ -32,6 +33,7 @@ from harvis.actions.visual_control import (
     click_screen_coordinates,
     local_vision_click,
     move_pointer,
+    set_visual_memory_enabled,
     vision_click,
 )
 from harvis.ai_watermark import should_watermark_ai_authored_text
@@ -46,7 +48,8 @@ from harvis.core.task_orchestrator import (
 from harvis.features.activity import ActivityHistory
 from harvis.features.clipboard import read_clipboard_text
 from harvis.features.declarative_plugins import DeclarativePluginStore
-from harvis.features.file_access import open_exact_path
+from harvis.features.diagnostics import RuntimeDiagnostics
+from harvis.features.file_access import find_exact_paths, open_exact_path
 from harvis.features.file_operations import (
     copy_item,
     move_item,
@@ -60,9 +63,13 @@ from harvis.features.file_operations import (
 from harvis.features.image_analysis import analyze_image
 from harvis.features.memory import MemoryStore
 from harvis.features.named_links import open_named_link
+from harvis.features.offline_commands import OfflineCommandRouter
+from harvis.features.proactive import ProactiveMonitor, ProactiveScheduleStore
 from harvis.features.questionnaire import complete_visible_questionnaire
 from harvis.features.routines import RoutineStore
+from harvis.features.semantic_search import SemanticFileSearch
 from harvis.features.tool_declarations import feature_tool_declarations
+from harvis.features.visual_memory import VisualTargetMemory
 from harvis.voice.gemini_live import GeminiLiveVoice
 from harvis.voice.local_wake import LocalWakeWordController
 
@@ -113,6 +120,7 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
         await super()._receive_live_messages(session, types, output_stream)
 
     def _system_instruction(self) -> str:
+        local_now = datetime.now().astimezone().isoformat(timespec="seconds")
         return (
             f"{super()._system_instruction()} "
             "You can operate the desktop through approved tools. Prefer direct local tools for "
@@ -156,6 +164,8 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             "Use remember_preference only after an explicit request to remember non-secret information. Use "
             "recall_memory only when saved context is relevant and forget_memory only when explicitly requested. "
             "Use open_exact_file_or_folder for exact local names; if it returns ambiguous, ask the user to choose. "
+            "Use semantic_search_files when the user describes a file by topic, approximate wording, type, or "
+            "recency instead of giving an exact filename. Never invent a returned path. "
             "Copy, move, rename, delete, or organize local items only after an explicit user request. Never "
             "overwrite an existing destination. Deletion always means moving to the operating system trash and "
             "requires a real later user confirmation. Folder organization also requires confirmation. "
@@ -167,7 +177,13 @@ class HarvisGeminiLiveVoice(GeminiLiveVoice):
             "unavailable, report that it stopped and why. Never ask the user to type the answers as a substitute, "
             "and never continue with general typing tools outside the guarded questionnaire workflow. Use "
             "save_routine only after an explicit request, and execute saved routines "
-            "and data-only plugins through the guarded planner. undo_last_action works only for a recorded safe "
+            "and data-only plugins through the guarded planner. Use schedule_reminder and schedule_routine only "
+            "after confirming a concrete local date and time; pass an ISO-8601 timestamp with its timezone. "
+            f"The current local date and time is {local_now}. "
+            "Plugins remain JSON-only: install_plugin_file and remove_plugin require explicit user intent. "
+            "Use run_self_check, explain_last_failure, and export_diagnostics when troubleshooting instead of "
+            "guessing about failures. Phone notifications should be short, useful, and never contain secrets. "
+            "undo_last_action works only for a recorded safe "
             "inverse; never promise that every computer action is reversible."
         )
 
@@ -504,13 +520,29 @@ class HarvisAssistant:
         self._routines = RoutineStore()
         self._plugins = DeclarativePluginStore()
         self._activity = ActivityHistory()
+        self._offline_commands = OfflineCommandRouter()
+        self._semantic_files = SemanticFileSearch()
+        self._visual_memory = VisualTargetMemory()
+        self._diagnostics = RuntimeDiagnostics()
+        self._proactive_schedule = ProactiveScheduleStore()
         self._task_orchestrator = TaskOrchestrator(
             executor=self._execute_tool,
             on_status=self._notify_status,
         )
+        self._proactive_monitor = ProactiveMonitor(
+            self._proactive_schedule,
+            on_notification=self._notify_user,
+            run_routine=self._run_scheduled_routine,
+            battery_threshold=settings.battery_alert_percent,
+            monitor_downloads=settings.download_notifications_enabled,
+        )
+        set_visual_memory_enabled(settings.visual_memory_enabled)
         self._watermark_context_text = ""
         self._watermark_context_at = 0.0
         self._watermark_pending = False
+        self._offline_fallback_lock = threading.RLock()
+        self._pending_offline_fallback = ""
+        self._pending_offline_fallback_at = 0.0
         self._confirmation_context_text = ""
         self._confirmation_context_at = 0.0
         self._visual_confirmation_lock = threading.RLock()
@@ -543,6 +575,8 @@ class HarvisAssistant:
         return self._voice.microphone_muted
 
     def start(self) -> None:
+        if self._settings.proactive_enabled:
+            self._proactive_monitor.start()
         if self._local_wake_enabled():
             try:
                 self._wake_controller.start()
@@ -553,6 +587,7 @@ class HarvisAssistant:
         self._voice.start()
 
     def stop(self) -> None:
+        self._proactive_monitor.stop()
         self._cancel_wake_session_timer()
         self._wake_controller.stop()
         self._voice.stop()
@@ -591,10 +626,17 @@ class HarvisAssistant:
         if self._settings.assistant_mode != "Silent":
             raise SystemActionError("Text commands are available only in Silent mode.")
 
-        self.ensure_active_session()
         self._record_visual_confirmation_response(command, complete_input=True)
         self._set_watermark_context(command)
-        if not self._voice.send_text(command):
+        self._set_offline_fallback(command)
+        try:
+            self.ensure_active_session()
+            queued = self._voice.send_text(command)
+        except Exception:
+            queued = False
+        if not queued:
+            if self._execute_pending_offline_fallback():
+                return
             raise SystemActionError("Harvis could not queue the text command.")
         self._notify_status("Silent command sent")
 
@@ -614,6 +656,15 @@ class HarvisAssistant:
 
         self._settings = settings
         self._voice.set_volume(settings.voice_volume)
+        set_visual_memory_enabled(settings.visual_memory_enabled)
+        self._proactive_monitor.configure(
+            battery_threshold=settings.battery_alert_percent,
+            monitor_downloads=settings.download_notifications_enabled,
+        )
+        if settings.proactive_enabled:
+            self._proactive_monitor.start()
+        else:
+            self._proactive_monitor.stop()
 
         if profile_changed and was_running:
             self._notify_status("Restarting Gemini Live for updated settings")
@@ -683,11 +734,13 @@ class HarvisAssistant:
         self._reset_wake_session_timer()
         self._record_visual_confirmation_response(text, complete_input=False)
         self._set_watermark_context(text, append_fragment=True)
+        self._set_offline_fallback(text)
         callback = self._on_heard
         if callback is not None:
             callback(text)
 
     def _handle_output_transcript(self, text: str) -> None:
+        self._clear_offline_fallback()
         self._reset_wake_session_timer()
         callback = self._on_response
         if callback is not None:
@@ -704,7 +757,45 @@ class HarvisAssistant:
             callback(spectrum)
 
     def _handle_live_error(self, error: Exception) -> None:
-        self._notify_status(f"Gemini Live unavailable: {error}")
+        if self._execute_pending_offline_fallback():
+            self._notify_status(
+                "Gemini Live was unavailable, so Harvis completed the recognized basic command locally."
+            )
+            return
+        self._notify_status(
+            f"Gemini Live unavailable: {error}. Basic local commands remain available."
+        )
+
+    def _set_offline_fallback(self, command: str) -> None:
+        if self._offline_commands.parse(command) is None:
+            self._clear_offline_fallback()
+            return
+        with self._offline_fallback_lock:
+            self._pending_offline_fallback = command
+            self._pending_offline_fallback_at = time.monotonic()
+
+    def _clear_offline_fallback(self) -> None:
+        with self._offline_fallback_lock:
+            self._pending_offline_fallback = ""
+            self._pending_offline_fallback_at = 0.0
+
+    def _execute_pending_offline_fallback(self) -> bool:
+        with self._offline_fallback_lock:
+            command = self._pending_offline_fallback
+            age = time.monotonic() - self._pending_offline_fallback_at
+            self._pending_offline_fallback = ""
+            self._pending_offline_fallback_at = 0.0
+        if not command or age > 45.0:
+            return False
+        try:
+            result = self._offline_commands.execute(command, self._execute_tool)
+        except Exception as exc:
+            self._notify_status(f"Offline fallback failed: {exc}")
+            return False
+        if result is None:
+            return False
+        self._report_offline_result(result)
+        return True
 
     def _handle_local_wake_error(self, error: Exception) -> None:
         """Fall back to Gemini Live if local Windows recognition stops unexpectedly."""
@@ -713,6 +804,36 @@ class HarvisAssistant:
         if self._local_wake_enabled() and not self._voice.is_running:
             self._notify_status("Falling back to Gemini Live listening")
             self._voice.start()
+
+    def _report_offline_result(self, result: dict[str, Any]) -> None:
+        action = str(result.get("action", "local action")).replace("_", " ")
+        status = str(result.get("status", "completed")).replace("_", " ")
+        message = f"Offline command: {action} — {status}."
+        self._notify_status(message)
+        callback = self._on_response
+        if callback is not None:
+            callback(message)
+
+    def _run_scheduled_routine(self, routine_name: str) -> dict[str, Any]:
+        return self._execute_tool("run_routine", {"name": routine_name})
+
+    def _notify_user(self, title: str, message: str, severity: str = "info") -> None:
+        rendered = f"{title}: {message}"
+        self._notify_status(rendered)
+        callback = self._on_response
+        if callback is not None:
+            callback(rendered)
+
+    def _send_phone_notification(
+        self,
+        title: str,
+        message: str,
+        severity: str = "info",
+    ) -> dict[str, Any]:
+        return {
+            "status": "not_available",
+            "message": "The paired phone remote is not available in this runtime.",
+        }
 
     @staticmethod
     def _normalize_confirmation_text(text: str) -> str:
@@ -875,7 +996,17 @@ class HarvisAssistant:
             )
 
     def _execute_tool(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        result = self._execute_tool_untracked(name, arguments)
+        self._clear_offline_fallback()
+        try:
+            result = self._execute_tool_untracked(name, arguments)
+        except Exception as exc:
+            if name not in {"recent_activity", "undo_last_action"}:
+                self._activity.record(
+                    name,
+                    arguments,
+                    {"status": "failed", "error": str(exc)},
+                )
+            raise
         if name not in {"recent_activity", "undo_last_action"}:
             undo = self._undo_for_action(name, arguments, result)
             self._activity.record(name, arguments, result, undo=undo)
@@ -904,7 +1035,21 @@ class HarvisAssistant:
             return self._memory.forget(str(arguments.get("key", "")))
 
         if name == "open_exact_file_or_folder":
-            return open_exact_path(str(arguments.get("name", "")))
+            result = open_exact_path(str(arguments.get("name", "")))
+            if result.get("status") == "completed" and result.get("path"):
+                self._semantic_files.record_open(str(result["path"]))
+            return result
+
+        if name == "semantic_search_files":
+            if not self._settings.semantic_file_search_enabled:
+                return {
+                    "status": "disabled",
+                    "message": "Semantic file search is disabled in Settings.",
+                }
+            return self._semantic_files.search(
+                str(arguments.get("query", "")),
+                limit=int(arguments.get("limit", 8)),
+            )
 
         if name == "copy_exact_file_or_folder":
             return copy_item(
@@ -1023,8 +1168,56 @@ class HarvisAssistant:
         if name == "delete_routine":
             return self._routines.delete(str(arguments.get("name", "")))
 
+        if name == "schedule_reminder":
+            if not self._settings.proactive_enabled:
+                return {
+                    "status": "disabled",
+                    "message": "Proactive assistance is disabled in Settings.",
+                }
+            return self._proactive_schedule.schedule_reminder(
+                str(arguments.get("message", "")),
+                str(arguments.get("run_at", "")),
+                recurrence=str(arguments.get("recurrence", "once")),
+            )
+
+        if name == "schedule_routine":
+            if not self._settings.proactive_enabled:
+                return {
+                    "status": "disabled",
+                    "message": "Proactive assistance is disabled in Settings.",
+                }
+            routine_name = str(arguments.get("name", ""))
+            if self._routines.get(routine_name) is None:
+                return {"status": "not_found", "name": routine_name}
+            return self._proactive_schedule.schedule_routine(
+                routine_name,
+                str(arguments.get("run_at", "")),
+                recurrence=str(arguments.get("recurrence", "once")),
+            )
+
+        if name == "list_scheduled_items":
+            return self._proactive_schedule.list()
+
+        if name == "cancel_scheduled_item":
+            return self._proactive_schedule.cancel(str(arguments.get("id", "")))
+
         if name == "recent_activity":
             return self._activity.recent(limit=int(arguments.get("limit", 20)))
+
+        if name == "explain_last_failure":
+            return self._activity.explain_last_failure()
+
+        if name == "run_self_check":
+            return self._diagnostics.run_self_check()
+
+        if name == "export_diagnostics":
+            return self._diagnostics.export_bundle()
+
+        if name == "visual_memory_stats":
+            return self._visual_memory.stats()
+
+        if name == "clear_visual_memory":
+            return self._visual_memory.clear()
 
         if name == "undo_last_action":
             undo = self._activity.take_undo()
@@ -1052,6 +1245,36 @@ class HarvisAssistant:
             if not isinstance(steps, list):
                 raise ValueError("The selected plugin is invalid.")
             return self._task_orchestrator.execute(steps)
+
+        if name == "install_plugin_file":
+            requested_name = str(arguments.get("name", ""))
+            matches = find_exact_paths(requested_name)
+            if not matches:
+                return {"status": "not_found", "name": requested_name}
+            if len(matches) > 1:
+                return {
+                    "status": "ambiguous",
+                    "name": requested_name,
+                    "matches": [str(path) for path in matches],
+                }
+            return self._plugins.install(
+                matches[0],
+                validate_steps=self._task_orchestrator.validate,
+            )
+
+        if name == "remove_plugin":
+            return self._plugins.remove(str(arguments.get("name", "")))
+
+        if name == "send_phone_notification":
+            if not self._settings.phone_notifications_enabled:
+                return {
+                    "status": "disabled",
+                    "message": "Phone notifications are disabled in Settings.",
+                }
+            return self._send_phone_notification(
+                str(arguments.get("title", "Harvis"))[:80],
+                str(arguments.get("message", ""))[:500],
+            )
 
         if name == "execute_action_plan":
             steps = arguments.get("steps", [])
@@ -1305,12 +1528,21 @@ class HarvisAssistant:
         )
 
     def _activate_from_wake(self, recognized_text: str) -> None:
-        self.ensure_active_session()
         command = extract_command(recognized_text)
         if command:
             self._set_watermark_context(command)
+            offline_result = self._offline_commands.execute(
+                command,
+                self._execute_tool,
+            )
+            if offline_result is not None:
+                self._report_offline_result(offline_result)
+                return
+            self.ensure_active_session()
             if not self._voice.send_text(command):
                 self._notify_status("Harvis could not queue the wake-word command")
+            return
+        self.ensure_active_session()
 
     def _reset_wake_session_timer(self) -> None:
         if not self._local_wake_enabled():

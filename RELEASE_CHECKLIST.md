@@ -1,4 +1,4 @@
-# Harvis v1.0.0 Release Checklist
+# Harvis v1.1.0 Release Checklist
 
 Use this checklist before creating the first public Harvis release. GitHub release publication is intentionally manual.
 
@@ -9,7 +9,7 @@ Use this checklist before creating the first public Harvis release. GitHub relea
 - [ ] Confirm Python 3.11 or newer is being used.
 - [ ] Activate `.venv` or use its Python executable directly.
 - [ ] Refresh dependencies with `python -m pip install -r requirements.txt`.
-- [ ] Confirm `harvis.__version__` reports `1.0.0`.
+- [ ] Confirm `harvis.__version__` reports `1.1.0`.
 
 Version check:
 
@@ -20,7 +20,7 @@ python -c "import harvis; print(harvis.__version__)"
 Expected output:
 
 ```text
-1.0.0
+1.1.0
 ```
 
 ## 2. Automated checks
@@ -110,6 +110,7 @@ Use a phone on the same trusted private LAN.
 - [ ] Confirm the new pairing code works after restart.
 - [ ] Disable mobile remote control and confirm the local server stops.
 - [ ] Confirm stopping the remote restores voice routing to `Computer only`.
+- [ ] Trigger a reminder or useful status notification and confirm the paired phone displays it once.
 - [ ] Do not configure router port forwarding for the Harvis remote port.
 
 ## 7. Local knowledge, files, routines, plugins, and Undo
@@ -124,6 +125,12 @@ Use a phone on the same trusted private LAN.
 - [ ] Confirm Trash and folder organization require real subsequent confirmation.
 - [ ] Save, run, and delete a harmless routine.
 - [ ] Run bundled JSON-only plugins and confirm arbitrary Python plugin files are not executed.
+- [ ] Install a harmless data-only plugin JSON, run it, remove it, and confirm an existing plugin is never silently overwritten.
+- [ ] Search for a harmless file by topic, type, and recent use; confirm only bounded local results are returned.
+- [ ] Repeat a harmless visual click twice, confirm verified visual memory can accelerate it, then alter the UI and confirm the fingerprint mismatch forces normal detection.
+- [ ] Confirm sensitive visual targets are not stored in visual memory.
+- [ ] Schedule a one-time reminder and a harmless routine, then cancel another scheduled item.
+- [ ] Make Gemini unavailable and confirm a recognized basic volume, media, link, or application command uses the local fallback.
 - [ ] Inspect the activity log and confirm typed content, memory values, keys, tokens, and passwords are not stored in plaintext.
 - [ ] Explicitly request clipboard context and confirm Harvis uses current clipboard content without maintaining a history.
 
@@ -157,6 +164,10 @@ Use a phone on the same trusted private LAN.
 - [ ] Confirm settings survive a Harvis restart.
 - [ ] Confirm remote enabled state and LAN port persist.
 - [ ] Confirm remote pairing codes and browser tokens are not persisted in `settings.json`.
+- [ ] Complete first-run onboarding in a clean profile and confirm it is not shown again after saving.
+- [ ] Test 80%, 100%, and 180% interface scaling plus reduced motion, high contrast, keyboard-only navigation, and captions.
+- [ ] Run the self-check and export diagnostics; inspect the ZIP and confirm credentials, tokens, API keys, passwords, and user name are redacted.
+- [ ] Simulate an unclean runtime marker and confirm the next launch reports recovery without crashing.
 
 ## 11. Windows portable build
 
@@ -177,14 +188,14 @@ powershell -ExecutionPolicy Bypass -File .\build\build_exe.ps1
 Run:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\build\build_installer.ps1 -Version "1.0.0"
+powershell -ExecutionPolicy Bypass -File .\build\build_installer.ps1 -Version "1.1.0"
 ```
 
 Expected artifacts:
 
 ```text
-dist\Harvis-1.0.0-Windows-x64-portable.zip
-dist\installer\Harvis-Setup-1.0.0-Windows-x64.exe
+dist\Harvis-1.1.0-Windows-x64-portable.zip
+dist\installer\Harvis-Setup-1.1.0-Windows-x64.exe
 ```
 
 - [ ] Confirm both artifacts are created with the expected names.
@@ -198,16 +209,16 @@ dist\installer\Harvis-Setup-1.0.0-Windows-x64.exe
 
 ## 13. GitHub Windows package workflow
 
-- [ ] Run `Windows package` manually with version `1.0.0` or trigger it from the final `v1.0.0` tag.
+- [ ] Run `Windows package` manually with version `1.1.0` or trigger it from the final `v1.1.0` tag.
 - [ ] Confirm the workflow build succeeds.
-- [ ] Download `Harvis-Setup-1.0.0-Windows-x64`.
-- [ ] Download `Harvis-1.0.0-Windows-x64-portable`.
+- [ ] Download `Harvis-Setup-1.1.0-Windows-x64`.
+- [ ] Download `Harvis-1.1.0-Windows-x64-portable`.
 - [ ] Smoke-test the downloaded artifacts, not only the locally built copies.
 
 ## 14. Repository final review
 
 - [ ] Confirm `README.md` describes the current `main` branch accurately.
-- [ ] Confirm `RELEASE_NOTES.md` is titled `Harvis v1.0.0 Release Notes`.
+- [ ] Confirm `RELEASE_NOTES.md` is titled `Harvis v1.1.0 Release Notes`.
 - [ ] Confirm `LICENSE` contains the complete GNU GPLv3 license.
 - [ ] Confirm no API keys, secrets, logs, `.venv`, build output, or personal temporary files are tracked.
 - [ ] Confirm committed repository text is in English.
@@ -217,14 +228,14 @@ dist\installer\Harvis-Setup-1.0.0-Windows-x64.exe
 
 Only after the applicable checks above are complete:
 
-- [ ] Create tag `v1.0.0` from the final release commit.
-- [ ] Create GitHub release `Harvis v1.0.0`.
+- [ ] Create tag `v1.1.0` from the final release commit.
+- [ ] Create GitHub release `Harvis v1.1.0`.
 - [ ] Use `RELEASE_NOTES.md` as the release description basis.
-- [ ] Attach `Harvis-1.0.0-Windows-x64-portable.zip`.
-- [ ] Attach `Harvis-Setup-1.0.0-Windows-x64.exe`.
+- [ ] Attach `Harvis-1.1.0-Windows-x64-portable.zip`.
+- [ ] Attach `Harvis-Setup-1.1.0-Windows-x64.exe`.
 - [ ] Disclose that Windows artifacts are currently unsigned.
 - [ ] Publish the release manually.
 
 ## Release status
 
-Do not publish v1.0.0 until the automated suite, packaged-runtime smoke tests, installer smoke test, and critical safety checks above have passed. Harvis should fail safely when visual confidence, questionnaire confidence, or confirmation requirements are not satisfied.
+Do not publish v1.1.0 until the automated suite, packaged-runtime smoke tests, installer smoke test, and critical safety checks above have passed. Harvis should fail safely when visual confidence, questionnaire confidence, or confirmation requirements are not satisfied.

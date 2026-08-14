@@ -22,6 +22,11 @@ def test_dense_general_settings_keep_controls_readable(tmp_path) -> None:
         assert window.assistant_mode.height() >= 34
         assert window.user_name.height() >= 34
         assert window.speech_language.height() >= 34
+        assert window.proactive_enabled.isChecked()
+        assert window.semantic_file_search.isChecked()
+        assert window.visual_memory.isChecked()
+        assert window.ui_scale.value() == 100
+        assert window.runtime_status.accessibleName() == "Harvis runtime status"
     finally:
         window.close()
         window.deleteLater()

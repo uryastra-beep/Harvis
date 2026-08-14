@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 import threading
+from pathlib import Path
 
 from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor, QIcon, QPainter, QPixmap
@@ -19,6 +20,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSpinBox,
     QSystemTrayIcon,
+    QDialog,
     QVBoxLayout,
 )
 
@@ -37,6 +39,7 @@ from harvis.credentials import (
     save_gemini_api_key,
 )
 from harvis.features.file_access import open_exact_path
+from harvis.features.diagnostics import RuntimeDiagnostics, RuntimeHealthSession
 from harvis.features.memory import MemoryStore
 from harvis.features.named_links import named_links_path
 from harvis.features.storage import harvis_data_dir
@@ -45,6 +48,8 @@ from harvis.remote_control import RemoteControlServer
 from harvis.single_instance import SingleInstanceCoordinator
 from harvis.startup import apply_startup_setting
 from harvis.ui.orb_popup import OrbPopupWindow
+from harvis.ui.caption_popup import CaptionPopup
+from harvis.ui.onboarding import OnboardingDialog
 from harvis.ui.settings_window import LiquidActionButton, SettingsWindow
 from harvis.ui.silent_popup import SilentCommandPopup
 from harvis.ui.visualizer_window import VisualizerWindow
@@ -81,6 +86,10 @@ class HarvisSettingsWindow(SettingsWindow):
         self._system_tray: QSystemTrayIcon | None = None
         self._force_exit = False
         self._memory_store = MemoryStore()
+        self._diagnostics = RuntimeDiagnostics(
+            settings_path=settings_store.config_path,
+        )
+        self._caption_popup: CaptionPopup | None = None
         super().__init__(settings_store)
         self._update_signals = UpdateSignals(self)
         self._update_signals.result.connect(self._show_update_result)
@@ -101,6 +110,17 @@ class HarvisSettingsWindow(SettingsWindow):
         """Keep the Qt tray wrapper alive for the complete application lifetime."""
 
         self._system_tray = tray
+
+    def show_system_notification(self, message: str) -> None:
+        tray = self._system_tray
+        if tray is None or not tray.supportsMessages():
+            return
+        tray.showMessage(
+            "Harvis",
+            str(message),
+            QSystemTrayIcon.MessageIcon.Information,
+            7000,
+        )
 
     def _build_general_page(self):
         page = super()._build_general_page()
@@ -149,10 +169,41 @@ class HarvisSettingsWindow(SettingsWindow):
         personalization_note.setWordWrap(True)
         personalization_form.addRow(personalization_note)
 
+        proactive_group = self._glass_group("Proactive assistance")
+        proactive_form = QFormLayout(proactive_group)
+        proactive_form.setHorizontalSpacing(18)
+        proactive_form.setVerticalSpacing(12)
+
+        self.proactive_enabled = QCheckBox(
+            "Enable reminders, scheduled routines, and local status alerts"
+        )
+        self.proactive_enabled.setAccessibleName("Enable proactive Harvis")
+        proactive_form.addRow(self.proactive_enabled)
+
+        self.download_notifications = QCheckBox(
+            "Notify me when a monitored download finishes"
+        )
+        self.download_notifications.setAccessibleName("Download completion alerts")
+        proactive_form.addRow(self.download_notifications)
+
+        self.battery_alert = QSpinBox()
+        self.battery_alert.setRange(5, 50)
+        self.battery_alert.setSuffix("%")
+        self.battery_alert.setAccessibleName("Low battery alert threshold")
+        proactive_form.addRow("Low battery alert", self.battery_alert)
+
+        proactive_note = QLabel(
+            "Scheduling and system checks run locally. A scheduled routine still uses Harvis's normal action guards."
+        )
+        proactive_note.setObjectName("mutedLabel")
+        proactive_note.setWordWrap(True)
+        proactive_form.addRow(proactive_note)
+
         if isinstance(layout, QVBoxLayout):
             insertion_index = max(0, layout.count() - 1)
             layout.insertWidget(insertion_index, mode_group)
             layout.insertWidget(insertion_index + 1, personalization_group)
+            layout.insertWidget(insertion_index + 2, proactive_group)
 
         return page
 
@@ -277,6 +328,12 @@ class HarvisSettingsWindow(SettingsWindow):
         )
         remote_form.addRow("LAN port", self.remote_control_port)
 
+        self.phone_notifications = QCheckBox(
+            "Send Harvis reminders and useful status results to the phone remote"
+        )
+        self.phone_notifications.setAccessibleName("Phone remote notifications")
+        remote_form.addRow(self.phone_notifications)
+
         self.remote_control_url = QLabel("Remote control is off.")
         self.remote_control_url.setObjectName("mutedLabel")
         self.remote_control_url.setWordWrap(True)
@@ -340,8 +397,61 @@ class HarvisSettingsWindow(SettingsWindow):
         wake_note.setWordWrap(True)
         behavior_form.addRow(wake_note)
 
+        accessibility_group = self._glass_group("Accessibility")
+        accessibility_form = QFormLayout(accessibility_group)
+        accessibility_form.setHorizontalSpacing(18)
+        accessibility_form.setVerticalSpacing(12)
+
+        self.ui_scale = QSpinBox()
+        self.ui_scale.setRange(80, 180)
+        self.ui_scale.setSingleStep(10)
+        self.ui_scale.setSuffix("%")
+        self.ui_scale.setAccessibleName("Settings interface scale")
+        accessibility_form.addRow("Interface scale", self.ui_scale)
+
+        self.reduced_motion = QCheckBox("Reduce interface animations")
+        self.reduced_motion.setAccessibleName("Reduce motion")
+        accessibility_form.addRow(self.reduced_motion)
+
+        self.high_contrast = QCheckBox("Use higher contrast controls and focus indicators")
+        self.high_contrast.setAccessibleName("High contrast")
+        accessibility_form.addRow(self.high_contrast)
+
+        self.captions = QCheckBox("Show a readable caption for Harvis responses")
+        self.captions.setAccessibleName("Response captions")
+        accessibility_form.addRow(self.captions)
+
+        reliability_group = self._glass_group("Reliability and diagnostics")
+        reliability_layout = QVBoxLayout(reliability_group)
+        reliability_note = QLabel(
+            "Run a local health check or export a redacted support bundle. API keys, passwords, tokens, and your name are excluded."
+        )
+        reliability_note.setObjectName("mutedLabel")
+        reliability_note.setWordWrap(True)
+        reliability_layout.addWidget(reliability_note)
+
+        reliability_buttons = QHBoxLayout()
+        self.self_check_button = QPushButton("Run self-check")
+        self.self_check_button.setAccessibleName("Run Harvis self-check")
+        self.self_check_button.clicked.connect(self._run_self_check)
+        self.export_diagnostics_button = QPushButton("Export diagnostics")
+        self.export_diagnostics_button.setAccessibleName("Export redacted diagnostics")
+        self.export_diagnostics_button.clicked.connect(self._export_diagnostics)
+        reliability_buttons.addWidget(self.self_check_button)
+        reliability_buttons.addWidget(self.export_diagnostics_button)
+        reliability_buttons.addStretch(1)
+        reliability_layout.addLayout(reliability_buttons)
+
+        self.diagnostics_status = QLabel("No self-check has run in this session.")
+        self.diagnostics_status.setObjectName("mutedLabel")
+        self.diagnostics_status.setWordWrap(True)
+        self.diagnostics_status.setAccessibleName("Diagnostics result")
+        reliability_layout.addWidget(self.diagnostics_status)
+
         layout.addWidget(remote_group)
         layout.addWidget(behavior_group)
+        layout.addWidget(accessibility_group)
+        layout.addWidget(reliability_group)
         layout.addStretch(1)
         return page
 
@@ -355,6 +465,25 @@ class HarvisSettingsWindow(SettingsWindow):
         memory_layout = QVBoxLayout(memory_group)
         self.local_memory = QCheckBox("Allow Harvis to save explicit non-secret memories")
         memory_layout.addWidget(self.local_memory)
+
+        intelligence_group = self._glass_group("Local intelligence")
+        intelligence_layout = QVBoxLayout(intelligence_group)
+        self.semantic_file_search = QCheckBox(
+            "Enable semantic file search by topic, type, and recent use"
+        )
+        self.semantic_file_search.setAccessibleName("Enable semantic file search")
+        intelligence_layout.addWidget(self.semantic_file_search)
+        self.visual_memory = QCheckBox(
+            "Remember verified non-sensitive interface locations"
+        )
+        self.visual_memory.setAccessibleName("Enable verified visual memory")
+        intelligence_layout.addWidget(self.visual_memory)
+        intelligence_note = QLabel(
+            "Both features remain local. Visual locations are reused only after repeated success and a matching screen fingerprint."
+        )
+        intelligence_note.setObjectName("mutedLabel")
+        intelligence_note.setWordWrap(True)
+        intelligence_layout.addWidget(intelligence_note)
 
         memory_form = QFormLayout()
         self.memory_key = QLineEdit()
@@ -411,6 +540,7 @@ class HarvisSettingsWindow(SettingsWindow):
         undo_button.clicked.connect(self._undo_last_safe_action)
         files_layout.addWidget(undo_button, 0, Qt.AlignmentFlag.AlignLeft)
 
+        layout.addWidget(intelligence_group)
         layout.addWidget(memory_group)
         layout.addWidget(files_group)
         layout.addStretch(1)
@@ -444,8 +574,32 @@ class HarvisSettingsWindow(SettingsWindow):
         if hasattr(self, "remote_control_port"):
             self.remote_control_port.setValue(self._settings.remote_control_port)
 
+        if hasattr(self, "phone_notifications"):
+            self.phone_notifications.setChecked(
+                self._settings.phone_notifications_enabled
+            )
+
         if hasattr(self, "local_memory"):
             self.local_memory.setChecked(self._settings.local_memory_enabled)
+
+        if hasattr(self, "proactive_enabled"):
+            self.proactive_enabled.setChecked(self._settings.proactive_enabled)
+
+        if hasattr(self, "download_notifications"):
+            self.download_notifications.setChecked(
+                self._settings.download_notifications_enabled
+            )
+
+        if hasattr(self, "battery_alert"):
+            self.battery_alert.setValue(self._settings.battery_alert_percent)
+
+        if hasattr(self, "semantic_file_search"):
+            self.semantic_file_search.setChecked(
+                self._settings.semantic_file_search_enabled
+            )
+
+        if hasattr(self, "visual_memory"):
+            self.visual_memory.setChecked(self._settings.visual_memory_enabled)
 
         if hasattr(self, "local_wake_word"):
             self.local_wake_word.setChecked(self._settings.local_wake_word_enabled)
@@ -462,6 +616,18 @@ class HarvisSettingsWindow(SettingsWindow):
 
         if hasattr(self, "system_tray"):
             self.system_tray.setChecked(self._settings.system_tray_enabled)
+
+        if hasattr(self, "ui_scale"):
+            self.ui_scale.setValue(self._settings.ui_scale_percent)
+
+        if hasattr(self, "reduced_motion"):
+            self.reduced_motion.setChecked(self._settings.reduced_motion)
+
+        if hasattr(self, "high_contrast"):
+            self.high_contrast.setChecked(self._settings.high_contrast)
+
+        if hasattr(self, "captions"):
+            self.captions.setChecked(self._settings.captions_enabled)
 
         self._refresh_gemini_api_key_status()
         self._refresh_remote_control_info()
@@ -682,6 +848,17 @@ class HarvisSettingsWindow(SettingsWindow):
         selected_wake_timeout = self.wake_session_timeout.value()
         selected_update_checks = self.automatic_update_checks.isChecked()
         selected_system_tray = self.system_tray.isChecked()
+        selected_proactive = self.proactive_enabled.isChecked()
+        selected_download_notifications = self.download_notifications.isChecked()
+        selected_battery_alert = self.battery_alert.value()
+        selected_semantic_search = self.semantic_file_search.isChecked()
+        selected_visual_memory = self.visual_memory.isChecked()
+        selected_phone_notifications = self.phone_notifications.isChecked()
+        selected_ui_scale = self.ui_scale.value()
+        selected_reduced_motion = self.reduced_motion.isChecked()
+        selected_high_contrast = self.high_contrast.isChecked()
+        selected_captions = self.captions.isChecked()
+        selected_first_run_completed = self._settings.first_run_completed
         pending_api_key = self.gemini_api_key.text().strip()
         api_key_changed = False
 
@@ -710,6 +887,17 @@ class HarvisSettingsWindow(SettingsWindow):
         self._settings.wake_session_timeout_seconds = selected_wake_timeout
         self._settings.automatic_update_checks = selected_update_checks
         self._settings.system_tray_enabled = selected_system_tray
+        self._settings.proactive_enabled = selected_proactive
+        self._settings.download_notifications_enabled = selected_download_notifications
+        self._settings.battery_alert_percent = selected_battery_alert
+        self._settings.semantic_file_search_enabled = selected_semantic_search
+        self._settings.visual_memory_enabled = selected_visual_memory
+        self._settings.phone_notifications_enabled = selected_phone_notifications
+        self._settings.ui_scale_percent = selected_ui_scale
+        self._settings.reduced_motion = selected_reduced_motion
+        self._settings.high_contrast = selected_high_contrast
+        self._settings.captions_enabled = selected_captions
+        self._settings.first_run_completed = selected_first_run_completed
         if isinstance(selected_language, str) and selected_language:
             self._settings.speech_language = selected_language
         self._settings_store.save(self._settings)
@@ -723,6 +911,7 @@ class HarvisSettingsWindow(SettingsWindow):
         )
         self.remote_control_port.setValue(self._settings.remote_control_port)
         set_ai_watermark_enabled(self._settings.ai_watermark_enabled)
+        self.apply_accessibility_settings()
         try:
             apply_startup_setting(self._settings.start_with_windows)
         except Exception as exc:
@@ -757,6 +946,8 @@ class HarvisSettingsWindow(SettingsWindow):
             self._visualizer_preview.close()
         if self._live_visualizer is not None:
             self._live_visualizer.close()
+        if self._caption_popup is not None:
+            self._caption_popup.close()
         if self._remote_server is not None:
             self._remote_server.stop()
         if self._assistant is not None:
@@ -766,6 +957,48 @@ class HarvisSettingsWindow(SettingsWindow):
     def request_full_exit(self) -> None:
         self._force_exit = True
         self.close()
+
+    def show_caption(self, text: str) -> None:
+        if not self._settings.captions_enabled:
+            return
+        if self._caption_popup is None:
+            self._caption_popup = CaptionPopup()
+        self._caption_popup.show_caption(text)
+
+    def show_onboarding_if_needed(self) -> None:
+        if self._settings.first_run_completed:
+            return
+        dialog = OnboardingDialog(self._settings, self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._settings = dialog.apply_to(self._settings)
+        self._settings_store.save(self._settings)
+        self._load_settings_into_controls()
+        if self._assistant is not None:
+            self._assistant.apply_settings(self._settings)
+        self.sync_live_visualizer()
+        self.statusBar().showMessage("Welcome to Harvis — setup completed", 5000)
+
+    def _run_self_check(self) -> None:
+        result = self._diagnostics.run_self_check()
+        message = (
+            f"Self-check: {result['status']} — "
+            f"{result['failures']} failures, {result['warnings']} warnings."
+        )
+        self.diagnostics_status.setText(message)
+        self.statusBar().showMessage(message, 6000)
+
+    def _export_diagnostics(self) -> None:
+        try:
+            result = self._diagnostics.export_bundle()
+        except Exception as exc:
+            self.diagnostics_status.setText(f"Diagnostics export failed: {exc}")
+            return
+        path = str(result["path"])
+        self.diagnostics_status.setText(
+            f"Redacted diagnostics exported: {path}"
+        )
+        self._open_local_data(Path(path))
 
     def _refresh_memory_list(self) -> None:
         if not hasattr(self, "memory_list"):
@@ -1015,6 +1248,12 @@ def main() -> int:
             return 1
         app.aboutToQuit.connect(instance_coordinator.close)
 
+    previous_unclean_shutdown = False
+    if options.visualizer_preview is None:
+        health_session = RuntimeHealthSession()
+        previous_unclean_shutdown = health_session.start()
+        app.aboutToQuit.connect(health_session.stop)
+
     settings_store = SettingsStore()
     assistant: RemoteCapableHarvisAssistant | None = None
     assistant_signals: AssistantSignals | None = None
@@ -1041,7 +1280,19 @@ def main() -> int:
             def show_status(status: str) -> None:
                 print(f"[Harvis] {status}", flush=True)
                 window.statusBar().showMessage(status)
+                window.set_runtime_status(status)
                 window.set_silent_status(status)
+
+                if status.startswith(
+                    (
+                        "Harvis reminder:",
+                        "Download finished:",
+                        "Battery is low:",
+                        "Scheduled routine:",
+                        "Routine failed:",
+                    )
+                ):
+                    window.show_system_notification(status)
 
                 if status in {"Microphone muted", "Microphone active"}:
                     window.sync_live_visualizer()
@@ -1067,6 +1318,7 @@ def main() -> int:
                 print(f"[Harvis] Response: {text}", flush=True)
                 window.set_live_loading(False)
                 window.set_silent_response(text)
+                window.show_caption(text)
 
             def request_shutdown() -> None:
                 print("[Harvis] Voice shutdown requested.", flush=True)
@@ -1112,6 +1364,13 @@ def main() -> int:
         window.set_system_tray(_create_system_tray(app, window, assistant))
 
     window.show()
+
+    if isinstance(window, HarvisSettingsWindow):
+        if previous_unclean_shutdown:
+            window.set_runtime_status(
+                "Harvis recovered after an unclean shutdown. Run the self-check if anything looks wrong."
+            )
+        QTimer.singleShot(100, window.show_onboarding_if_needed)
 
     if assistant is not None:
         window.sync_live_visualizer()

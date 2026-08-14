@@ -28,6 +28,19 @@ def test_gemini_registers_next_generation_feature_tools() -> None:
         "undo_last_action",
         "list_plugins",
         "run_plugin",
+        "semantic_search_files",
+        "schedule_reminder",
+        "schedule_routine",
+        "list_scheduled_items",
+        "cancel_scheduled_item",
+        "send_phone_notification",
+        "explain_last_failure",
+        "run_self_check",
+        "export_diagnostics",
+        "visual_memory_stats",
+        "clear_visual_memory",
+        "install_plugin_file",
+        "remove_plugin",
     }.issubset(names)
 
 
