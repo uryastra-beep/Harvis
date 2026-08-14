@@ -9,7 +9,8 @@ import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from xml.etree import ElementTree
+
+from defusedxml import ElementTree
 
 from harvis.features.file_access import default_search_roots
 from harvis.features.storage import harvis_data_dir, read_json, write_json

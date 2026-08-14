@@ -5,6 +5,7 @@ Pillow>=11,<13
 mss>=10,<11
 opencv-python-headless>=4.10,<5
 send2trash>=1.8,<2
+defusedxml>=0.7,<1
 pypdf>=6,<7
 pywinauto>=0.6.9,<1; platform_system == "Windows"
 pycaw>=20240210; platform_system == "Windows"
